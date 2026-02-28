@@ -113,7 +113,7 @@ function App() {
         map.current = null
       }
     }
-  }, [activeTab])
+  }, [activeTab, loading, finds])
 
   return (
     <div className="fixed inset-0 flex flex-col bg-[#050505] text-white overflow-hidden font-sans">
