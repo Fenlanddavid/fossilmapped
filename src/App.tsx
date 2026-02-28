@@ -81,7 +81,7 @@ function App() {
         // Calculate Stats
         const periods: Record<string, number> = {}
         mappedData.forEach(f => {
-          const p = f.period.split(' (')[0] // normalize "Jurassic (Toarcian)" to "Jurassic"
+          const p = (f.period || "Unknown").split(' (')[0] // normalize "Jurassic (Toarcian)" to "Jurassic"
           periods[p] = (periods[p] || 0) + 1
         })
         const colors = ['bg-accent', 'bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-amber-500']
