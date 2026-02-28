@@ -6,6 +6,7 @@ create table public.shared_finds (
     id uuid primary key default uuid_generate_v4(),
     fossilmap_id text not null, -- Original ID from user's local DB
     collector_name text not null,
+    collector_email text, -- Contact email for access requests
     taxon text not null,
     element text,
     period text,

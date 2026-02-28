@@ -25,3 +25,8 @@ using (true);
 create policy "Anyone can share a find" 
 on public.shared_finds for insert 
 with check (true);
+
+ create policy "Anyone can remove a find"
+ on public.shared_finds for delete
+ using (true);
+

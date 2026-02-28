@@ -1,6 +1,7 @@
 export interface SharedFind {
   id: string;
   collectorName: string;
+  collectorEmail?: string;
   taxon: string;
   element?: string;
   period?: string;

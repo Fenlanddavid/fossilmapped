@@ -49,6 +49,8 @@ function App() {
   const [selectedFind, setSelectedFind] = useState<SharedFind | null>(null)
   const [finds, setFinds] = useState<SharedFind[]>([])
   const [loading, setLoading] = useState(true)
+  const [stats, setStats] = useState<{label: string, count: number, color: string}[]>([])
+  const [activity, setActivity] = useState<SharedFind[]>([])
   const mapContainer = useRef<HTMLDivElement>(null)
   const map = useRef<maplibregl.Map | null>(null)
 
@@ -60,9 +62,10 @@ function App() {
         const mappedData: SharedFind[] = data.map((d: any) => ({
           id: d.fossilmap_id,
           collectorName: d.collector_name,
+          collectorEmail: d.collector_email, // Map the email field
           taxon: d.taxon,
           element: d.element,
-          period: d.period,
+          period: d.period || "Unknown",
           locationName: d.location_name,
           latitude: d.latitude,
           longitude: d.longitude,
@@ -74,6 +77,31 @@ function App() {
           isPublic: true
         }))
         setFinds(mappedData)
+
+        // Calculate Stats
+        const periods: Record<string, number> = {}
+        mappedData.forEach(f => {
+          const p = f.period.split(' (')[0] // normalize "Jurassic (Toarcian)" to "Jurassic"
+          periods[p] = (periods[p] || 0) + 1
+        })
+        const colors = ['bg-accent', 'bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-amber-500']
+        const sortedStats = Object.entries(periods)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 5)
+          .map(([label, count], i) => ({
+            label,
+            count: Math.round((count / mappedData.length) * 100),
+            color: colors[i % colors.length]
+          }))
+        setStats(sortedStats.length > 0 ? sortedStats : [
+          { label: 'Jurassic', count: 0, color: 'bg-accent' },
+          { label: 'Cretaceous', count: 0, color: 'bg-blue-500' },
+          { label: 'Devonian', count: 0, color: 'bg-green-500' }
+        ])
+
+        // Get recent activity (last 5)
+        setActivity(mappedData.sort((a, b) => new Date(b.sharedAt).getTime() - new Date(a.sharedAt).getTime()).slice(0, 5))
+
       } catch (e) {
         console.error("Failed to fetch finds:", e)
         // Fallback to mock data if database fails or isn't set up yet
@@ -239,11 +267,7 @@ function App() {
                <BarChart3 className="w-3 h-3" /> Distribution by Period
              </h3>
              <div className="space-y-3">
-               {[
-                 { label: 'Jurassic', count: 42, color: 'bg-accent' },
-                 { label: 'Cretaceous', count: 28, color: 'bg-blue-500' },
-                 { label: 'Devonian', count: 12, color: 'bg-green-500' }
-               ].map(stat => (
+               {stats.map(stat => (
                  <div key={stat.label} className="space-y-1">
                    <div className="flex justify-between text-[10px] font-bold">
                      <span>{stat.label}</span>
@@ -260,15 +284,15 @@ function App() {
            <div>
              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30 mb-4">Registry Activity</h3>
              <div className="space-y-4">
-               {[1, 2, 3].map(i => (
-                 <div key={i} className="flex gap-3 text-[10px]">
+               {activity.map(f => (
+                 <div key={f.id} className="flex gap-3 text-[10px]">
                     <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center shrink-0">
                       <Globe className="w-4 h-4 text-white/20" />
                     </div>
                     <div>
                       <p className="font-bold">New Record Shared</p>
-                      <p className="text-white/40">Ammonite from Whitby added by David.</p>
-                      <p className="text-accent mt-1">2 hours ago</p>
+                      <p className="text-white/40">{f.taxon} from {f.locationName} added by {f.collectorName}.</p>
+                      <p className="text-accent mt-1">{new Date(f.sharedAt).toLocaleDateString()}</p>
                     </div>
                  </div>
                ))}
@@ -382,7 +406,17 @@ function App() {
                    <button className="w-full py-4 bg-accent text-black rounded-2xl font-black uppercase tracking-widest text-xs hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl shadow-accent/10">
                      Download Full Citation (BibTeX)
                    </button>
-                   <button className="w-full py-4 bg-white/5 text-white/60 rounded-2xl font-bold text-xs hover:bg-white/10 transition-all border border-white/5">
+                   <button 
+                     onClick={() => {
+                       if (selectedFind.collectorEmail) {
+                         window.location.href = `mailto:${selectedFind.collectorEmail}?subject=Access Request: ${selectedFind.taxon} (${selectedFind.id})&body=Hello ${selectedFind.collectorName},%0D%0A%0D%0AI saw your find of ${selectedFind.taxon} on FossilMapped and would like to request more information or access for research purposes.`;
+                       } else {
+                         alert("This collector has not provided a contact email.");
+                       }
+                     }}
+                     title={selectedFind.collectorEmail || "No email provided"}
+                     className="w-full py-4 bg-white/5 text-white/60 rounded-2xl font-bold text-xs hover:bg-white/10 transition-all border border-white/5"
+                   >
                      Contact Collector for Access
                    </button>
                 </div>
