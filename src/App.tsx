@@ -89,7 +89,7 @@ function App() {
     if (activeTab === 'map' && mapContainer.current && !map.current && !loading) {
       map.current = new maplibregl.Map({
         container: mapContainer.current,
-        style: 'https://tiles.basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+        style: 'https://demotiles.maplibre.org/style.json', // More reliable fallback
         center: [-2.0, 54.0],
         zoom: 5.5
       })
@@ -169,7 +169,7 @@ function App() {
           </div>
 
           <div className="flex-1 relative">
-            {activeTab === 'map' && <div ref={mapContainer} className="absolute inset-0" />}
+            {activeTab === 'map' && <div ref={mapContainer} className="absolute inset-0 w-full h-full" />}
             
             {activeTab === 'database' && (
               <div className="absolute inset-0 overflow-auto bg-[#0a0a0a]">
