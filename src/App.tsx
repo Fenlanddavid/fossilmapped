@@ -214,7 +214,11 @@ function App() {
                 {finds.map(find => (
                   <div key={find.id} onClick={() => setSelectedFind(find)} className="group bg-surface rounded-xl overflow-hidden border border-white/5 hover:border-accent/40 transition-all cursor-pointer shadow-lg">
                     <div className="aspect-square bg-black/40 flex items-center justify-center text-[10px] text-white/10 uppercase tracking-[0.2em] font-black italic">
-                      Restricted Access Image
+                      {find.photos && find.photos.length > 0 ? (
+                        <img src={find.photos[0]} alt={find.taxon} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                      ) : (
+                        "Restricted Access Image"
+                      )}
                     </div>
                     <div className="p-4">
                       <div className="text-[9px] font-black text-accent uppercase tracking-wider mb-1">{find.period}</div>
@@ -279,16 +283,25 @@ function App() {
           <div className="absolute inset-0 bg-black/90 backdrop-blur-sm" onClick={() => setSelectedFind(null)} />
           <div className="relative w-full max-w-5xl bg-surface border border-white/10 rounded-3xl overflow-hidden shadow-2xl flex flex-col md:flex-row max-h-[90vh]">
              {/* Left: Visuals */}
-             <div className="w-full md:w-1/2 bg-black flex flex-col">
-                <div className="flex-1 flex items-center justify-center relative group">
-                  <span className="text-white/10 text-xs italic font-black uppercase tracking-widest">Scientific Documentation Required</span>
+             <div className="w-full md:w-1/2 bg-black flex flex-col h-[400px] md:h-auto">
+                <div className="flex-1 flex items-center justify-center relative group overflow-hidden bg-[#050505]">
+                  {selectedFind.photos && selectedFind.photos.length > 0 ? (
+                    <img src={selectedFind.photos[0]} alt={selectedFind.taxon} className="w-full h-full object-contain" />
+                  ) : (
+                    <span className="text-white/10 text-xs italic font-black uppercase tracking-widest">Scientific Documentation Required</span>
+                  )}
                   <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-lg border border-white/10 flex items-center gap-2">
                     <Eye className="w-3 h-3 text-accent" />
                     <span className="text-[10px] font-black uppercase tracking-wider">Authenticated View</span>
                   </div>
                 </div>
-                <div className="h-20 border-t border-white/5 p-3 flex gap-2">
-                  {[1, 2, 3, 4].map(i => (
+                <div className="h-20 border-t border-white/5 p-3 flex gap-2 bg-surface">
+                  {selectedFind.photos && selectedFind.photos.map((photo, i) => (
+                    <div key={i} className="w-16 h-full bg-black/40 rounded-lg border border-white/10 overflow-hidden cursor-pointer hover:border-accent transition-all">
+                       <img src={photo} alt={`${selectedFind.taxon} ${i+1}`} className="w-full h-full object-cover" />
+                    </div>
+                  ))}
+                  {(!selectedFind.photos || selectedFind.photos.length === 0) && [1, 2, 3, 4].map(i => (
                     <div key={i} className="w-16 h-full bg-white/5 rounded-lg border border-white/10 flex items-center justify-center text-[8px] text-white/20 font-bold uppercase text-center p-1">Slot {i}</div>
                   ))}
                 </div>
