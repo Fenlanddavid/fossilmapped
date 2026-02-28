@@ -89,7 +89,7 @@ function App() {
     if (activeTab === 'map' && mapContainer.current && !map.current && !loading) {
       map.current = new maplibregl.Map({
         container: mapContainer.current,
-        style: 'https://demotiles.maplibre.org/style.json', // More reliable fallback
+        style: 'https://tiles.basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
         center: [-2.0, 54.0],
         zoom: 5.5
       })
