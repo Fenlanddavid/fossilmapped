@@ -414,7 +414,6 @@ function App() {
                          alert("This collector has not provided a contact email.");
                        }
                      }}
-                     title={selectedFind.collectorEmail || "No email provided"}
                      className="w-full py-4 bg-white/5 text-white/60 rounded-2xl font-bold text-xs hover:bg-white/10 transition-all border border-white/5"
                    >
                      Contact Collector for Access
