@@ -115,26 +115,65 @@ function App() {
 
   useEffect(() => {
     if (activeTab === 'map' && mapContainer.current && !map.current && !loading) {
-      map.current = new maplibregl.Map({
-        container: mapContainer.current,
-        style: 'https://tiles.basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
-        center: [-2.0, 54.0],
-        zoom: 5.5
-      })
-
-      map.current.on('load', () => {
-        finds.forEach(find => {
-          const el = document.createElement('div');
-          el.className = 'w-4 h-4 bg-accent rounded-full border-2 border-white shadow-lg cursor-pointer hover:scale-125 transition-transform';
-          
-          new maplibregl.Marker(el)
-            .setLngLat([find.longitude, find.latitude])
-            .addTo(map.current!)
-            .getElement().addEventListener('click', () => setSelectedFind(find));
-        })
-      })
-    }
-    
+            map.current = new maplibregl.Map({
+              container: mapContainer.current,
+              style: 'https://tiles.basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+              center: [-2.0, 54.0],
+              zoom: 5.5
+            })
+      
+            map.current.on('load', () => {
+              // Add GeoJSON source for the finds
+              map.current?.addSource('finds', {
+                type: 'geojson',
+                data: {
+                  type: 'FeatureCollection',
+                  features: finds.map(f => ({
+                    type: 'Feature',
+                    geometry: { type: 'Point', coordinates: [f.longitude, f.latitude] },
+                    properties: { ...f }
+                  }))
+                }
+              });
+      
+              // Add Circle Layer (renders directly on canvas - no snapping!)
+              map.current?.addLayer({
+                id: 'finds-layer',
+                type: 'circle',
+                source: 'finds',
+                paint: {
+                  'circle-color': '#00D1FF', // Accent Blue
+                  'circle-radius': [
+                    'interpolate', ['linear'], ['zoom'],
+                    5, 4,   // At zoom 5, 4px radius
+                    10, 8,  // At zoom 10, 8px radius
+                    15, 12  // At zoom 15, 12px radius
+                  ],
+                  'circle-stroke-width': 2,
+                  'circle-stroke-color': '#ffffff',
+                  'circle-opacity': 0.8
+                }
+              });
+      
+                      // Handle Click (Select Find)
+                      map.current?.on('click', 'finds-layer', (e) => {
+                        if (e.features && e.features[0]) {
+                          const findId = e.features[0].properties?.id;
+                          const originalFind = finds.find(f => f.id === findId);
+                          if (originalFind) {
+                            setSelectedFind(originalFind);
+                          }
+                        }
+                      });      
+              // Cursor Changes
+              map.current?.on('mouseenter', 'finds-layer', () => {
+                map.current!.getCanvas().style.cursor = 'pointer';
+              });
+              map.current?.on('mouseleave', 'finds-layer', () => {
+                map.current!.getCanvas().style.cursor = '';
+              });
+            })
+          }    
     return () => {
       if (map.current) {
         map.current.remove()
