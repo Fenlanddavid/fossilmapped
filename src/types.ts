@@ -5,6 +5,7 @@ export interface SharedFind {
   taxon: string;
   element?: string;
   period?: string;
+  stage?: string;
   locationName: string;
   latitude: number;
   longitude: number;

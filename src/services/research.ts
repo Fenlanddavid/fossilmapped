@@ -44,6 +44,6 @@ export function toBibTeX(find: any): string {
   year = {${year}},
   note = {Retrieved from https://Fenlanddavid.github.io/fossilmapped/},
   location = {${find.locationName}},
-  keywords = {${find.period}, ${find.taxon}}
+  keywords = {${find.period}, ${find.stage ? find.stage + ', ' : ''}${find.taxon}}
 }`;
 }

@@ -16,7 +16,8 @@ const MOCK_FINDS: SharedFind[] = [
     collectorName: 'D. Johnston',
     taxon: 'Hildoceras bifrons',
     element: 'Complete Phragmocone',
-    period: 'Jurassic (Toarcian)',
+    period: 'Jurassic',
+    stage: 'Toarcian',
     locationName: 'Whitby, North Yorkshire',
     latitude: 54.4858,
     longitude: -0.6206,
@@ -32,7 +33,8 @@ const MOCK_FINDS: SharedFind[] = [
     collectorName: 'S. Miller',
     taxon: 'Gryphaea arcuata',
     element: 'Left Valve',
-    period: 'Jurassic (Sinemurian)',
+    period: 'Jurassic',
+    stage: 'Sinemurian',
     locationName: 'Lyme Regis, Dorset',
     latitude: 50.7252,
     longitude: -2.9345,
@@ -66,6 +68,7 @@ function App() {
           taxon: d.taxon,
           element: d.element,
           period: d.period || "Unknown",
+          stage: d.stage || "",
           locationName: d.location_name,
           latitude: d.latitude,
           longitude: d.longitude,
@@ -260,7 +263,10 @@ function App() {
                            <div className="text-sm font-bold">{find.taxon}</div>
                            <div className="text-[10px] text-white/40">{find.element}</div>
                         </td>
-                        <td className="px-6 py-4 text-xs text-white/60">{find.period}</td>
+                        <td className="px-6 py-4 text-xs text-white/60">
+                            <div>{find.period}</div>
+                            {find.stage && <div className="text-[10px] text-accent/70">{find.stage}</div>}
+                        </td>
                         <td className="px-6 py-4 text-xs text-white/60">{find.locationName}</td>
                         <td className="px-6 py-4 text-xs text-white/60">{find.collectorName}</td>
                         <td className="px-6 py-4 text-xs font-mono text-white/40">{find.dateCollected}</td>
@@ -288,7 +294,9 @@ function App() {
                       )}
                     </div>
                     <div className="p-4">
-                      <div className="text-[9px] font-black text-accent uppercase tracking-wider mb-1">{find.period}</div>
+                      <div className="text-[9px] font-black text-accent uppercase tracking-wider mb-1">
+                        {find.period}{find.stage ? ` (${find.stage})` : ""}
+                      </div>
                       <h3 className="text-sm font-bold leading-tight mb-1">{find.taxon}</h3>
                       <p className="text-[10px] text-white/40 truncate">{find.locationName}</p>
                     </div>
@@ -393,6 +401,7 @@ function App() {
                         <span className="text-[9px] font-black uppercase tracking-wider">Stratigraphy</span>
                       </div>
                       <div className="text-sm font-bold">{selectedFind.period}</div>
+                      {selectedFind.stage && <div className="text-[10px] text-accent/70 font-bold uppercase tracking-widest mt-1">{selectedFind.stage}</div>}
                    </div>
                    <div className="bg-black/30 p-4 rounded-2xl border border-white/5">
                       <div className="flex items-center gap-2 text-white/30 mb-2">
