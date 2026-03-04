@@ -99,6 +99,7 @@ function App() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+    alert(`Citation for ${find.taxon} downloaded successfully!`);
   };
 
   useEffect(() => {
