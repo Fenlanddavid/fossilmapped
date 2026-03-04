@@ -47,6 +47,7 @@ const MOCK_FINDS: SharedFind[] = [
 ]
 
 function App() {
+  const [searchQuery, setSearchQuery] = useState('')
   const [activeTab, setActiveTab] = useState<'map' | 'gallery' | 'database' | 'stats'>('map')
   const [selectedFind, setSelectedFind] = useState<SharedFind | null>(null)
   const [finds, setFinds] = useState<SharedFind[]>([])
@@ -56,10 +57,70 @@ function App() {
   const mapContainer = useRef<HTMLDivElement>(null)
   const map = useRef<maplibregl.Map | null>(null)
 
+  const filteredFinds = finds.filter(f => 
+    f.taxon.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    f.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    f.locationName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (f.period || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (f.stage || "").toLowerCase().includes(searchQuery.toLowerCase())
+  )
+
+  const downloadBibTeX = (find: SharedFind) => {
+    const date = find.sharedAt ? new Date(find.sharedAt) : new Date();
+    const bibYear = date.getFullYear();
+    const bibMonth = date.toLocaleString('default', { month: 'long' });
+    
+    // Format measurements string
+    const m = find.measurements;
+    const measurementNote = m ? ` Dimensions: ${m.length || 0}x${m.width || 0}x${m.thickness || 0}mm, ${m.weight || 0}g.` : '';
+    
+    const hasStage = find.stage && find.stage.toLowerCase() !== "unknown" && find.stage.trim() !== "";
+    const strat = hasStage ? `${find.period} (${find.stage})` : find.period;
+    
+    const bibtex = `@misc{${find.id},
+  author = {${find.collectorName}},
+  title = {Fossil Record: {${find.taxon}} ({${find.element || 'Specimen'}})},
+  howpublished = {\\url{https://Fenlanddavid.github.io/fossilmapped/}},
+  year = {${bibYear}},
+  month = {${bibMonth}},
+  note = {FossilMapped ID: ${find.id}. 
+          Stratigraphy: ${strat}. 
+          Provenance: ${find.locationName} (${find.latitude.toFixed(4)}, ${find.longitude.toFixed(4)}). 
+          ${measurementNote}
+          ${find.notes ? `Researcher Notes: ${find.notes}` : ''}}
+}`;
+    
+    const blob = new Blob([bibtex], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${find.id.replace(/[-\s]+/g, '_')}.bib`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   useEffect(() => {
     async function loadData() {
       try {
-        const data = await getSharedFinds()
+        const rawData = await getSharedFinds()
+        
+        // Deduplicate: Only keep the latest version of each find based on its original ID
+        // Sort rawData by shared_at DESC locally as well to be 100% sure
+        const sortedData = [...rawData].sort((a: any, b: any) => 
+          new Date(b.shared_at).getTime() - new Date(a.shared_at).getTime()
+        );
+
+        const uniqueMap = new Map<string, any>();
+        sortedData.forEach((d: any) => {
+          if (!uniqueMap.has(d.fossilmap_id)) {
+            uniqueMap.set(d.fossilmap_id, d);
+          }
+        });
+        
+        const data = Array.from(uniqueMap.values());
+
         // Map DB fields back to our UI type
         const mappedData: SharedFind[] = data.map((d: any) => ({
           id: d.fossilmap_id,
@@ -67,8 +128,8 @@ function App() {
           collectorEmail: d.collector_email, // Map the email field
           taxon: d.taxon,
           element: d.element,
-          period: d.period || "Unknown",
-          stage: d.stage || "",
+          period: (d.period || "").replace(/\s+/g, ' ').trim() || "Unknown",
+          stage: (d.stage || "").replace(/\s+/g, ' ').trim(),
           locationName: d.location_name,
           latitude: d.latitude,
           longitude: d.longitude,
@@ -84,7 +145,7 @@ function App() {
         // Calculate Stats
         const periods: Record<string, number> = {}
         mappedData.forEach(f => {
-          const p = (f.period || "Unknown").split(' (')[0] // normalize "Jurassic (Toarcian)" to "Jurassic"
+          const p = f.period || "Unknown"
           periods[p] = (periods[p] || 0) + 1
         })
         const colors = ['bg-accent', 'bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-amber-500']
@@ -116,26 +177,24 @@ function App() {
     loadData()
   }, [])
 
+  // Map Instance Lifecycle
   useEffect(() => {
-    if (activeTab === 'map' && mapContainer.current && !map.current && !loading) {
+    if (activeTab === 'map' && mapContainer.current && !map.current) {
             map.current = new maplibregl.Map({
               container: mapContainer.current,
               style: 'https://tiles.basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
               center: [-2.0, 54.0],
-              zoom: 5.5
+              zoom: 5.5,
+              clickTolerance: 15 // Increase for better hit-testing on mobile
             })
       
             map.current.on('load', () => {
-              // Add GeoJSON source for the finds
+              // Add GeoJSON source for the finds (empty initially if loading)
               map.current?.addSource('finds', {
                 type: 'geojson',
                 data: {
                   type: 'FeatureCollection',
-                  features: finds.map(f => ({
-                    type: 'Feature',
-                    geometry: { type: 'Point', coordinates: [f.longitude, f.latitude] },
-                    properties: { ...f }
-                  }))
+                  features: []
                 }
               });
       
@@ -158,16 +217,34 @@ function App() {
                 }
               });
       
-                      // Handle Click (Select Find)
-                      map.current?.on('click', 'finds-layer', (e) => {
-                        if (e.features && e.features[0]) {
-                          const findId = e.features[0].properties?.id;
-                          const originalFind = finds.find(f => f.id === findId);
-                          if (originalFind) {
-                            setSelectedFind(originalFind);
-                          }
-                        }
-                      });      
+              // Handle Click (Select Find)
+              map.current?.on('click', 'finds-layer', (e) => {
+                if (e.features && e.features[0]) {
+                  const findId = e.features[0].properties?.id;
+                  // We'll use a ref-like approach or just access the latest finds if needed
+                  // but here it's easier to just find it from the features properties
+                  // which we already mapped.
+                  const props = e.features[0].properties;
+                  if (props) {
+                     // Since properties in GeoJSON are flattened strings, we might need 
+                     // to find the original object if complex types are needed, 
+                     // but for the modal, the id is enough to look it up.
+                     // We use the latest 'finds' state indirectly here because we are in an event handler.
+                     // But actually, it's safer to use the 'id' and look it up in the state.
+                     // I'll add a helper for this or use a functional update.
+                  }
+                }
+              });
+
+              // Specialized event listener that doesn't depend on effect closure
+              const handleClick = (e: any) => {
+                if (e.features && e.features[0]) {
+                  const findId = e.features[0].properties?.id;
+                  // Look up in the latest array (closure will be stale, but we can fix this 
+                  // by adding another effect for listeners or using a ref for finds)
+                }
+              };
+
               // Cursor Changes
               map.current?.on('mouseenter', 'finds-layer', () => {
                 map.current!.getCanvas().style.cursor = 'pointer';
@@ -183,7 +260,49 @@ function App() {
         map.current = null
       }
     }
-  }, [activeTab, loading, finds])
+  }, [activeTab])
+
+  // Data Update Lifecycle
+  useEffect(() => {
+    if (map.current && !loading) {
+      const updateData = () => {
+        if (!map.current?.isStyleLoaded()) return;
+        const source = map.current.getSource('finds') as maplibregl.GeoJSONSource;
+        if (source) {
+          source.setData({
+            type: 'FeatureCollection',
+            features: filteredFinds.map(f => ({
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [f.longitude, f.latitude] },
+              properties: { ...f }
+            }))
+          });
+        }
+      };
+
+      if (map.current.loaded()) {
+        updateData();
+      } else {
+        map.current.once('load', updateData);
+      }
+    }
+  }, [filteredFinds, loading])
+
+  // Update Click Handler (to avoid stale closures)
+  useEffect(() => {
+    if (map.current) {
+      const onClick = (e: any) => {
+        if (e.features && e.features[0]) {
+          const findId = e.features[0].properties?.id;
+          const found = filteredFinds.find(f => f.id === findId);
+          if (found) setSelectedFind(found);
+        }
+      };
+      
+      map.current.off('click', 'finds-layer'); // Remove old one
+      map.current.on('click', 'finds-layer', onClick);
+    }
+  }, [filteredFinds])
 
   return (
     <div className="fixed inset-0 flex flex-col bg-[#050505] text-white overflow-hidden font-sans">
@@ -211,8 +330,17 @@ function App() {
              <input 
                 placeholder="Search Taxon, ID, Region..." 
                 className="bg-black/40 border border-white/10 rounded-full py-1.5 pl-9 pr-4 text-xs w-64 focus:border-accent/50 outline-none transition-all"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
              />
            </div>
+           <button 
+             onClick={() => window.location.reload()}
+             className="p-2 rounded-lg hover:bg-white/5 text-white/60 hover:text-white transition-colors"
+             title="Refresh Database"
+           >
+             <Database className="w-4 h-4" />
+           </button>
            <button className="p-2 rounded-lg hover:bg-white/5">
              <Filter className="w-4 h-4 text-white/60" />
            </button>
@@ -248,7 +376,7 @@ function App() {
                     <tr className="text-[10px] font-black uppercase tracking-widest text-white/40">
                       <th className="px-6 py-4">Ref ID</th>
                       <th className="px-6 py-4">Taxon</th>
-                      <th className="px-6 py-4">Period</th>
+                      <th className="px-6 py-4">Period / Stage</th>
                       <th className="px-6 py-4">Location</th>
                       <th className="px-6 py-4">Collector</th>
                       <th className="px-6 py-4">Date</th>
@@ -256,7 +384,7 @@ function App() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5">
-                    {finds.map(find => (
+                    {filteredFinds.map(find => (
                       <tr key={find.id} className="hover:bg-white/[0.02] group transition-colors cursor-pointer" onClick={() => setSelectedFind(find)}>
                         <td className="px-6 py-4 text-xs font-mono text-accent">{find.id}</td>
                         <td className="px-6 py-4">
@@ -264,8 +392,12 @@ function App() {
                            <div className="text-[10px] text-white/40">{find.element}</div>
                         </td>
                         <td className="px-6 py-4 text-xs text-white/60">
-                            <div>{find.period}</div>
-                            {find.stage && <div className="text-[10px] text-accent/70">{find.stage}</div>}
+                            <div className="font-bold">{find.period}</div>
+                            {find.stage && find.stage !== "Unknown" ? (
+                                <div className="text-[10px] text-accent font-black uppercase tracking-tighter">{find.stage}</div>
+                            ) : (
+                                <div className="text-[8px] text-white/20 italic">No Stage Data</div>
+                            )}
                         </td>
                         <td className="px-6 py-4 text-xs text-white/60">{find.locationName}</td>
                         <td className="px-6 py-4 text-xs text-white/60">{find.collectorName}</td>
@@ -284,19 +416,26 @@ function App() {
 
             {activeTab === 'gallery' && (
               <div className="absolute inset-0 overflow-y-auto p-6 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-                {finds.map(find => (
+                {filteredFinds.map(find => (
                   <div key={find.id} onClick={() => setSelectedFind(find)} className="group bg-surface rounded-xl overflow-hidden border border-white/5 hover:border-accent/40 transition-all cursor-pointer shadow-lg">
-                    <div className="aspect-square bg-black/40 flex items-center justify-center text-[10px] text-white/10 uppercase tracking-[0.2em] font-black italic">
+                    <div className="aspect-square bg-black/40 flex items-center justify-center text-[10px] text-white/10 uppercase tracking-[0.2em] font-black italic relative">
                       {find.photos && find.photos.length > 0 ? (
                         <img src={find.photos[0]} alt={find.taxon} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
                       ) : (
                         "Restricted Access Image"
                       )}
+                      <div className="absolute top-2 left-2 flex flex-col gap-1">
+                         <div className="bg-black/60 backdrop-blur-md px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest text-accent border border-accent/20">
+                            {find.period}
+                         </div>
+                         {find.stage && find.stage !== "Unknown" && (
+                           <div className="bg-accent text-black px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest">
+                              {find.stage}
+                           </div>
+                         )}
+                      </div>
                     </div>
                     <div className="p-4">
-                      <div className="text-[9px] font-black text-accent uppercase tracking-wider mb-1">
-                        {find.period}{find.stage ? ` (${find.stage})` : ""}
-                      </div>
                       <h3 className="text-sm font-bold leading-tight mb-1">{find.taxon}</h3>
                       <p className="text-[10px] text-white/40 truncate">{find.locationName}</p>
                     </div>
@@ -401,7 +540,7 @@ function App() {
                         <span className="text-[9px] font-black uppercase tracking-wider">Stratigraphy</span>
                       </div>
                       <div className="text-sm font-bold">{selectedFind.period}</div>
-                      {selectedFind.stage && <div className="text-[10px] text-accent/70 font-bold uppercase tracking-widest mt-1">{selectedFind.stage}</div>}
+                      {selectedFind.stage && selectedFind.stage !== "Unknown" && <div className="text-[10px] text-accent/70 font-bold uppercase tracking-widest mt-1">{selectedFind.stage}</div>}
                    </div>
                    <div className="bg-black/30 p-4 rounded-2xl border border-white/5">
                       <div className="flex items-center gap-2 text-white/30 mb-2">
@@ -451,7 +590,10 @@ function App() {
                 )}
 
                 <div className="flex flex-col gap-3">
-                   <button className="w-full py-4 bg-accent text-black rounded-2xl font-black uppercase tracking-widest text-xs hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl shadow-accent/10">
+                   <button 
+                     onClick={() => downloadBibTeX(selectedFind)}
+                     className="w-full py-4 bg-accent text-black rounded-2xl font-black uppercase tracking-widest text-xs hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl shadow-accent/10"
+                   >
                      Download Full Citation (BibTeX)
                    </button>
                    <button 
