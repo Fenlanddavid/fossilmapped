@@ -217,34 +217,6 @@ function App() {
                 }
               });
       
-              // Handle Click (Select Find)
-              map.current?.on('click', 'finds-layer', (e) => {
-                if (e.features && e.features[0]) {
-                  const findId = e.features[0].properties?.id;
-                  // We'll use a ref-like approach or just access the latest finds if needed
-                  // but here it's easier to just find it from the features properties
-                  // which we already mapped.
-                  const props = e.features[0].properties;
-                  if (props) {
-                     // Since properties in GeoJSON are flattened strings, we might need 
-                     // to find the original object if complex types are needed, 
-                     // but for the modal, the id is enough to look it up.
-                     // We use the latest 'finds' state indirectly here because we are in an event handler.
-                     // But actually, it's safer to use the 'id' and look it up in the state.
-                     // I'll add a helper for this or use a functional update.
-                  }
-                }
-              });
-
-              // Specialized event listener that doesn't depend on effect closure
-              const handleClick = (e: any) => {
-                if (e.features && e.features[0]) {
-                  const findId = e.features[0].properties?.id;
-                  // Look up in the latest array (closure will be stale, but we can fix this 
-                  // by adding another effect for listeners or using a ref for finds)
-                }
-              };
-
               // Cursor Changes
               map.current?.on('mouseenter', 'finds-layer', () => {
                 map.current!.getCanvas().style.cursor = 'pointer';
@@ -290,7 +262,8 @@ function App() {
 
   // Update Click Handler (to avoid stale closures)
   useEffect(() => {
-    if (map.current) {
+    const mapInstance = map.current;
+    if (mapInstance) {
       const onClick = (e: any) => {
         if (e.features && e.features[0]) {
           const findId = e.features[0].properties?.id;
@@ -299,8 +272,11 @@ function App() {
         }
       };
       
-      map.current.off('click', 'finds-layer'); // Remove old one
-      map.current.on('click', 'finds-layer', onClick);
+      mapInstance.on('click', 'finds-layer', onClick);
+      
+      return () => {
+        mapInstance.off('click', 'finds-layer', onClick);
+      };
     }
   }, [filteredFinds])
 
