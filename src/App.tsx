@@ -8,6 +8,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { SharedFind } from './types'
 import { getSharedFinds } from './services/supabase'
+import { exportToCSV, exportToJSON } from './services/export'
 
 // Expanded Mock Data for "Researcher" feel
 const MOCK_FINDS: SharedFind[] = [
@@ -348,6 +349,13 @@ function App() {
             
             {activeTab === 'database' && (
               <div className="absolute inset-0 overflow-auto bg-[#0a0a0a]">
+                <div className="p-4 bg-surface border-b border-white/5 flex justify-between items-center">
+                   <div className="text-[10px] font-black uppercase tracking-widest text-white/40">Total Records: {filteredFinds.length}</div>
+                   <div className="flex gap-2">
+                      <button onClick={() => exportToCSV(filteredFinds)} className="px-3 py-1.5 bg-accent/10 text-accent border border-accent/20 rounded text-[9px] font-black uppercase tracking-widest hover:bg-accent hover:text-black transition-all">Export CSV</button>
+                      <button onClick={() => exportToJSON(filteredFinds)} className="px-3 py-1.5 bg-white/5 text-white/60 border border-white/10 rounded text-[9px] font-black uppercase tracking-widest hover:bg-white/10 hover:text-white transition-all">Export JSON</button>
+                   </div>
+                </div>
                 <table className="w-full text-left border-collapse min-w-[800px]">
                   <thead className="sticky top-0 bg-surface z-10 border-b border-white/10">
                     <tr className="text-[10px] font-black uppercase tracking-widest text-white/40">
@@ -539,6 +547,23 @@ function App() {
                         <span className="text-[9px] font-black uppercase tracking-wider">Date Found</span>
                       </div>
                       <div className="text-sm font-bold font-mono">{selectedFind.dateCollected}</div>
+                   </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 mb-8">
+                   <div className="bg-accent/5 p-4 rounded-2xl border border-accent/20">
+                      <div className="flex items-center gap-2 text-accent/50 mb-2">
+                        <Eye className="w-3 h-3" />
+                        <span className="text-[9px] font-black uppercase tracking-wider">Quality Score</span>
+                      </div>
+                      <div className="text-xl font-black text-accent">{(selectedFind as any).quality_score || 0}%</div>
+                   </div>
+                   <div className="bg-white/5 p-4 rounded-2xl border border-white/10">
+                      <div className="flex items-center gap-2 text-white/30 mb-2">
+                        <Database className="w-3 h-3" />
+                        <span className="text-[9px] font-black uppercase tracking-wider">Repository</span>
+                      </div>
+                      <div className="text-xs font-bold font-mono">{(selectedFind as any).repository || "Private"}</div>
                    </div>
                 </div>
 
