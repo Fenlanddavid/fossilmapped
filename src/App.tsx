@@ -189,7 +189,7 @@ function App() {
               style: 'https://tiles.basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
               center: [-2.0, 54.0],
               zoom: 5.5,
-              clickTolerance: 15 // Increase for better hit-testing on mobile
+              clickTolerance: 40 // Significantly increased for better hit-testing on mobile
             })
       
             map.current.on('load', () => {
@@ -211,9 +211,9 @@ function App() {
                   'circle-color': '#00D1FF', // Accent Blue
                   'circle-radius': [
                     'interpolate', ['linear'], ['zoom'],
-                    5, 4,   // At zoom 5, 4px radius
-                    10, 8,  // At zoom 10, 8px radius
-                    15, 12  // At zoom 15, 12px radius
+                    5, 8,   // At zoom 5, 8px radius (16px diameter)
+                    10, 12, // At zoom 10, 12px radius
+                    15, 18  // At zoom 15, 18px radius
                   ],
                   'circle-stroke-width': 2,
                   'circle-stroke-color': '#ffffff',
@@ -269,17 +269,27 @@ function App() {
     const mapInstance = map.current;
     if (mapInstance) {
       const onClick = (e: any) => {
-        if (e.features && e.features[0]) {
-          const findId = e.features[0].properties?.id;
+        // Expand the search area to a 40x40px box for easier picking on mobile
+        const bbox: [[number, number], [number, number]] = [
+          [e.point.x - 20, e.point.y - 20],
+          [e.point.x + 20, e.point.y + 20]
+        ];
+        
+        const features = mapInstance.queryRenderedFeatures(bbox, {
+          layers: ['finds-layer']
+        });
+
+        if (features && features[0]) {
+          const findId = features[0].properties?.id;
           const found = filteredFinds.find(f => f.id === findId);
           if (found) setSelectedFind(found);
         }
       };
       
-      mapInstance.on('click', 'finds-layer', onClick);
+      mapInstance.on('click', onClick);
       
       return () => {
-        mapInstance.off('click', 'finds-layer', onClick);
+        mapInstance.off('click', onClick);
       };
     }
   }, [filteredFinds])
