@@ -17,6 +17,12 @@ export interface SharedFind {
     thickness?: number;
     weight?: number;
   };
+  repository?: string;
+  accession_id?: string;
+  quality_score?: number;
+  formation?: string;
+  member?: string;
+  bed?: string;
   notes?: string;
   isPublic: boolean;
   sharedAt: string;

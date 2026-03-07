@@ -138,6 +138,8 @@ function App() {
           dateCollected: d.date_collected,
           photos: d.photos || [],
           measurements: d.measurements,
+          repository: d.repository || "Private",
+          quality_score: d.quality_score || 0,
           notes: d.notes,
           sharedAt: d.shared_at,
           isPublic: true
