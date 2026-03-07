@@ -23,8 +23,7 @@ export function exportToCSV(finds: SharedFind[]) {
     `"${(f.notes || "").replace(/"/g, '""')}"`
   ].join(","));
 
-  const csv = [headers, ...rows].join("
-");
+  const csv = [headers, ...rows].join("\n");
   downloadFile(csv, "fossilmapped_dataset.csv", "text/csv");
 }
 
