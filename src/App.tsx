@@ -296,6 +296,27 @@ function App() {
 
   return (
     <div className="fixed inset-0 flex flex-col bg-[#050505] text-white overflow-hidden font-sans">
+      {/* Loading Overlay */}
+      {loading && (
+        <div className="fixed inset-0 z-[100] bg-background flex flex-col items-center justify-center space-y-6">
+          <div className="relative">
+            <div className="w-24 h-24 border-2 border-accent/20 rounded-full animate-ping absolute inset-0" />
+            <div className="w-24 h-24 bg-surface border border-white/10 rounded-full flex items-center justify-center relative shadow-2xl shadow-accent/20">
+               <Globe className="w-10 h-10 text-accent animate-pulse" />
+            </div>
+          </div>
+          <div className="flex flex-col items-center gap-2 text-center px-4">
+            <h2 className="text-xl font-black uppercase tracking-[0.3em] text-white">FossilMapped</h2>
+            <div className="flex items-center justify-center gap-3 my-2">
+              <div className="w-2 h-2 bg-accent rounded-full animate-bounce [animation-delay:-0.3s]" />
+              <div className="w-2 h-2 bg-accent rounded-full animate-bounce [animation-delay:-0.15s]" />
+              <div className="w-2 h-2 bg-accent rounded-full animate-bounce" />
+            </div>
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40 mt-1 animate-pulse">Synchronizing Global Registry...</p>
+          </div>
+        </div>
+      )}
+
       {/* Top Professional Header */}
       <header className="h-14 px-4 bg-surface border-b border-white/5 flex items-center justify-between z-30 shadow-2xl">
         <div className="flex items-center gap-4">
