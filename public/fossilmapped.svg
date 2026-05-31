@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="FossilMapped">
+  <rect width="512" height="512" rx="96" fill="#f59e0b"/>
+  <g fill="none" stroke="#05070b" stroke-width="30" stroke-linecap="round" stroke-linejoin="round">
+    <ellipse cx="256" cy="142" rx="118" ry="54"/>
+    <path d="M138 142v228c0 30 53 54 118 54s118-24 118-54V142"/>
+    <path d="M138 256c0 30 53 54 118 54s118-24 118-54"/>
+  </g>
+</svg>

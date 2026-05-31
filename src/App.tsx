@@ -1,8 +1,30 @@
-import React, { useState, useEffect, useRef } from 'react'
-import { 
-  Map as MapIcon, Grid, List, Search, Globe, Info, Filter, 
-  Eye, Database, BarChart3, ChevronRight, Hash, Calendar, 
-  MapPin, User, Ruler, Layers 
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  AlertTriangle,
+  Archive,
+  BarChart3,
+  Calendar,
+  CheckCircle2,
+  ChevronRight,
+  Database,
+  Download,
+  Eye,
+  Filter,
+  Globe,
+  Grid,
+  Hash,
+  Image,
+  Info,
+  Layers,
+  List,
+  Mail,
+  Map as MapIcon,
+  MapPin,
+  RefreshCw,
+  Ruler,
+  Search,
+  User,
+  X,
 } from 'lucide-react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -10,15 +32,29 @@ import { SharedFind } from './types'
 import { getSharedFinds } from './services/supabase'
 import { exportToCSV, exportToJSON } from './services/export'
 
-// Expanded Mock Data for "Researcher" feel
+type ActiveTab = 'map' | 'database' | 'gallery' | 'stats'
+type SourceStatus = 'loading' | 'live' | 'demo' | 'empty'
+
+type RawSharedFind = Record<string, unknown>
+
+const TABS: Array<{ id: ActiveTab; label: string; shortLabel: string; icon: React.ComponentType<{ className?: string }> }> = [
+  { id: 'map', label: 'Spatial Map', shortLabel: 'Map', icon: MapIcon },
+  { id: 'database', label: 'Record List', shortLabel: 'Records', icon: List },
+  { id: 'gallery', label: 'Visual Gallery', shortLabel: 'Gallery', icon: Grid },
+  { id: 'stats', label: 'Analytics', shortLabel: 'Stats', icon: BarChart3 },
+]
+
 const MOCK_FINDS: SharedFind[] = [
   {
     id: 'FMP-2026-001',
     collectorName: 'D. Johnston',
+    collectorEmail: 'research@example.org',
     taxon: 'Hildoceras bifrons',
-    element: 'Complete Phragmocone',
+    element: 'Complete phragmocone',
     period: 'Jurassic',
     stage: 'Toarcian',
+    formation: 'Whitby Mudstone',
+    member: 'Alum Shale',
     locationName: 'Whitby, North Yorkshire',
     latitude: 54.4858,
     longitude: -0.6206,
@@ -26,16 +62,20 @@ const MOCK_FINDS: SharedFind[] = [
     photos: [],
     sharedAt: '2026-02-16',
     isPublic: true,
+    repository: 'Private collection',
+    accession_id: 'FM-DJ-2026-001',
+    quality_score: 86,
     measurements: { length: 45, width: 38, thickness: 12, weight: 85 },
-    notes: "Found in situ within the Alum Shale Member. Excellent suturing preserved."
+    notes: 'Found in situ within the Alum Shale Member. Excellent suturing preserved.',
   },
   {
     id: 'FMP-2026-002',
     collectorName: 'S. Miller',
     taxon: 'Gryphaea arcuata',
-    element: 'Left Valve',
+    element: 'Left valve',
     period: 'Jurassic',
     stage: 'Sinemurian',
+    formation: 'Blue Lias',
     locationName: 'Lyme Regis, Dorset',
     latitude: 50.7252,
     longitude: -2.9345,
@@ -43,137 +83,45 @@ const MOCK_FINDS: SharedFind[] = [
     photos: [],
     sharedAt: '2026-02-21',
     isPublic: true,
-    measurements: { length: 55, width: 42, thickness: 25, weight: 120 }
-  }
+    repository: 'Private',
+    quality_score: 68,
+    measurements: { length: 55, width: 42, thickness: 25, weight: 120 },
+  },
 ]
 
 function App() {
   const [searchQuery, setSearchQuery] = useState('')
-  const [activeTab, setActiveTab] = useState<'map' | 'gallery' | 'database' | 'stats'>('map')
+  const [activeTab, setActiveTab] = useState<ActiveTab>('map')
   const [selectedFind, setSelectedFind] = useState<SharedFind | null>(null)
   const [finds, setFinds] = useState<SharedFind[]>([])
   const [loading, setLoading] = useState(true)
-  const [stats, setStats] = useState<{label: string, count: number, color: string}[]>([])
-  const [activity, setActivity] = useState<SharedFind[]>([])
+  const [sourceStatus, setSourceStatus] = useState<SourceStatus>('loading')
+  const [sourceMessage, setSourceMessage] = useState('')
+  const [showFilters, setShowFilters] = useState(false)
+  const [selectedPeriod, setSelectedPeriod] = useState('All')
+  const [contactableOnly, setContactableOnly] = useState(false)
+  const [withPhotosOnly, setWithPhotosOnly] = useState(false)
+  const [highQualityOnly, setHighQualityOnly] = useState(false)
+  const [mapHudDismissed, setMapHudDismissed] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
   const mapContainer = useRef<HTMLDivElement>(null)
   const map = useRef<maplibregl.Map | null>(null)
 
-  const filteredFinds = finds.filter(f => 
-    f.taxon.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    f.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    f.locationName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (f.period || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (f.stage || "").toLowerCase().includes(searchQuery.toLowerCase())
-  )
-
-  const downloadBibTeX = (find: SharedFind) => {
-    const date = find.sharedAt ? new Date(find.sharedAt) : new Date();
-    const bibYear = date.getFullYear();
-    const bibMonth = date.toLocaleString('default', { month: 'long' });
-    
-    // Format measurements string
-    const m = find.measurements;
-    const measurementNote = m ? ` Dimensions: ${m.length || 0}x${m.width || 0}x${m.thickness || 0}mm, ${m.weight || 0}g.` : '';
-    
-    const hasStage = find.stage && find.stage.toLowerCase() !== "unknown" && find.stage.trim() !== "";
-    const strat = hasStage ? `${find.period} (${find.stage})` : find.period;
-    
-    const bibtex = `@misc{${find.id},
-  author = {${find.collectorName}},
-  title = {Fossil Record: {${find.taxon}} ({${find.element || 'Specimen'}})},
-  howpublished = {\\url{https://Fenlanddavid.github.io/fossilmapped/}},
-  year = {${bibYear}},
-  month = {${bibMonth}},
-  note = {FossilMapped ID: ${find.id}. 
-          Stratigraphy: ${strat}. 
-          Provenance: ${find.locationName} (${find.latitude.toFixed(4)}, ${find.longitude.toFixed(4)}). 
-          ${measurementNote}
-          ${find.notes ? `Researcher Notes: ${find.notes}` : ''}}
-}`;
-    
-    const blob = new Blob([bibtex], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${find.id.replace(/[-\s]+/g, '_')}.bib`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    alert(`Citation for ${find.taxon} downloaded successfully!`);
-  };
-
   useEffect(() => {
     async function loadData() {
+      setLoading(true)
+      setSourceStatus('loading')
       try {
         const rawData = await getSharedFinds()
-        
-        // Deduplicate: Only keep the latest version of each find based on its original ID
-        // Sort rawData by shared_at DESC locally as well to be 100% sure
-        const sortedData = [...rawData].sort((a: any, b: any) => 
-          new Date(b.shared_at).getTime() - new Date(a.shared_at).getTime()
-        );
-
-        const uniqueMap = new Map<string, any>();
-        sortedData.forEach((d: any) => {
-          if (!uniqueMap.has(d.fossilmap_id)) {
-            uniqueMap.set(d.fossilmap_id, d);
-          }
-        });
-        
-        const data = Array.from(uniqueMap.values());
-
-        // Map DB fields back to our UI type
-        const mappedData: SharedFind[] = data.map((d: any) => ({
-          id: d.fossilmap_id,
-          collectorName: d.collector_name,
-          collectorEmail: d.collector_email, // Map the email field
-          taxon: d.taxon,
-          element: d.element,
-          period: (d.period || "").replace(/\s+/g, ' ').trim() || "Unknown",
-          stage: (d.stage || "").replace(/\s+/g, ' ').trim(),
-          locationName: d.location_name,
-          latitude: d.latitude,
-          longitude: d.longitude,
-          dateCollected: d.date_collected,
-          photos: d.photos || [],
-          measurements: d.measurements,
-          repository: d.repository || "Private",
-          quality_score: d.quality_score || 0,
-          notes: d.notes,
-          sharedAt: d.shared_at,
-          isPublic: true
-        }))
-        setFinds(mappedData)
-
-        // Calculate Stats
-        const periods: Record<string, number> = {}
-        mappedData.forEach(f => {
-          const p = f.period || "Unknown"
-          periods[p] = (periods[p] || 0) + 1
-        })
-        const colors = ['bg-accent', 'bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-amber-500']
-        const sortedStats = Object.entries(periods)
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 5)
-          .map(([label, count], i) => ({
-            label,
-            count: Math.round((count / mappedData.length) * 100),
-            color: colors[i % colors.length]
-          }))
-        setStats(sortedStats.length > 0 ? sortedStats : [
-          { label: 'Jurassic', count: 0, color: 'bg-accent' },
-          { label: 'Cretaceous', count: 0, color: 'bg-blue-500' },
-          { label: 'Devonian', count: 0, color: 'bg-green-500' }
-        ])
-
-        // Get recent activity (last 5)
-        setActivity(mappedData.sort((a, b) => new Date(b.sharedAt).getTime() - new Date(a.sharedAt).getTime()).slice(0, 5))
-
-      } catch (e) {
-        console.error("Failed to fetch finds:", e)
-        // Fallback to mock data if database fails or isn't set up yet
+        const data = dedupeRawFinds(rawData).map(mapRawFind).filter((find): find is SharedFind => !!find)
+        setFinds(data)
+        setSourceStatus(data.length > 0 ? 'live' : 'empty')
+        setSourceMessage(data.length > 0 ? 'Live shared registry' : 'The shared registry is reachable but has no public records yet.')
+      } catch (error) {
+        console.error('Failed to fetch finds:', error)
         setFinds(MOCK_FINDS)
+        setSourceStatus('demo')
+        setSourceMessage(error instanceof Error ? error.message : 'Live registry unavailable. Showing demo records.')
       } finally {
         setLoading(false)
       }
@@ -181,475 +129,1137 @@ function App() {
     loadData()
   }, [])
 
-  // Map Instance Lifecycle
+  const filteredFinds = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    return finds.filter((find) => {
+      if (selectedPeriod !== 'All' && normalise(find.period) !== selectedPeriod) return false
+      if (contactableOnly && !find.collectorEmail) return false
+      if (withPhotosOnly && (!find.photos || find.photos.length === 0)) return false
+      if (highQualityOnly && getQuality(find) < 70) return false
+      if (!q) return true
+      return [
+        find.id,
+        find.taxon,
+        find.element,
+        find.period,
+        find.stage,
+        find.formation,
+        find.member,
+        find.bed,
+        find.locationName,
+        find.collectorName,
+        find.repository,
+        find.accession_id,
+      ].some((value) => normalise(value).toLowerCase().includes(q))
+    })
+  }, [contactableOnly, finds, highQualityOnly, searchQuery, selectedPeriod, withPhotosOnly])
+
+  const periods = useMemo(() => {
+    const values = Array.from(new Set(finds.map((find) => normalise(find.period)).filter(Boolean)))
+    return ['All', ...values.sort((a, b) => a.localeCompare(b))]
+  }, [finds])
+
+  const analytics = useMemo(() => buildAnalytics(finds), [finds])
+  const filteredAnalytics = useMemo(() => buildAnalytics(filteredFinds), [filteredFinds])
+  const activeFilterCount = [selectedPeriod !== 'All', contactableOnly, withPhotosOnly, highQualityOnly].filter(Boolean).length
+
+  function clearFilters() {
+    setSearchQuery('')
+    setSelectedPeriod('All')
+    setContactableOnly(false)
+    setWithPhotosOnly(false)
+    setHighQualityOnly(false)
+  }
+
+  function requestAccess(find: SharedFind) {
+    if (!find.collectorEmail) return
+    const subject = encodeURIComponent(`Access request: ${find.taxon} (${find.id})`)
+    const body = encodeURIComponent(
+      `Hello ${find.collectorName},\n\nI saw your find of ${find.taxon} on FossilMapped and would like to request more information or access for research purposes.\n\nRecord: ${find.id}\nLocation: ${find.locationName}`
+    )
+    window.location.href = `mailto:${find.collectorEmail}?subject=${subject}&body=${body}`
+  }
+
+  function downloadBibTeX(find: SharedFind) {
+    const bibtex = toBibTeX(find)
+    const blob = new Blob([bibtex], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${find.id.replace(/[-\s]+/g, '_')}.bib`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    setNotice(`Citation downloaded for ${find.taxon}`)
+  }
+
   useEffect(() => {
-    if (activeTab === 'map' && mapContainer.current && !map.current) {
-            map.current = new maplibregl.Map({
-              container: mapContainer.current,
-              style: 'https://tiles.basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
-              center: [-2.0, 54.0],
-              zoom: 5.5,
-              clickTolerance: 40 // Significantly increased for better hit-testing on mobile
-            })
-      
-            map.current.on('load', () => {
-              // Add GeoJSON source for the finds (empty initially if loading)
-              map.current?.addSource('finds', {
-                type: 'geojson',
-                data: {
-                  type: 'FeatureCollection',
-                  features: []
-                }
-              });
-      
-              // Add Circle Layer (renders directly on canvas - no snapping!)
-              map.current?.addLayer({
-                id: 'finds-layer',
-                type: 'circle',
-                source: 'finds',
-                paint: {
-                  'circle-color': '#00D1FF', // Accent Blue
-                  'circle-radius': [
-                    'interpolate', ['linear'], ['zoom'],
-                    5, 8,   // At zoom 5, 8px radius (16px diameter)
-                    10, 12, // At zoom 10, 12px radius
-                    15, 18  // At zoom 15, 18px radius
-                  ],
-                  'circle-stroke-width': 2,
-                  'circle-stroke-color': '#ffffff',
-                  'circle-opacity': 0.8
-                }
-              });
-      
-              // Cursor Changes
-              map.current?.on('mouseenter', 'finds-layer', () => {
-                map.current!.getCanvas().style.cursor = 'pointer';
-              });
-              map.current?.on('mouseleave', 'finds-layer', () => {
-                map.current!.getCanvas().style.cursor = '';
-              });
-            })
-          }    
+    if (!notice) return
+    const timer = window.setTimeout(() => setNotice(null), 3200)
+    return () => window.clearTimeout(timer)
+  }, [notice])
+
+  useEffect(() => {
+    if (activeTab !== 'map' || !mapContainer.current || map.current) return
+
+    map.current = new maplibregl.Map({
+      container: mapContainer.current,
+      style: 'https://tiles.basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+      center: [-2.0, 54.0],
+      zoom: 5.5,
+      clickTolerance: 40,
+    })
+
+    map.current.on('load', () => {
+      map.current?.addSource('finds', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+
+      map.current?.addLayer({
+        id: 'finds-layer',
+        type: 'circle',
+        source: 'finds',
+        paint: {
+          'circle-color': '#f59e0b',
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 8, 10, 12, 15, 18],
+          'circle-stroke-width': 2,
+          'circle-stroke-color': '#ffffff',
+          'circle-opacity': 0.86,
+        },
+      })
+
+      map.current?.on('mouseenter', 'finds-layer', () => {
+        map.current!.getCanvas().style.cursor = 'pointer'
+      })
+      map.current?.on('mouseleave', 'finds-layer', () => {
+        map.current!.getCanvas().style.cursor = ''
+      })
+    })
+
+    window.setTimeout(() => map.current?.resize(), 100)
+
     return () => {
-      if (map.current) {
-        map.current.remove()
-        map.current = null
-      }
+      map.current?.remove()
+      map.current = null
     }
   }, [activeTab])
 
-  // Data Update Lifecycle
   useEffect(() => {
-    if (map.current && !loading) {
-      const updateData = () => {
-        if (!map.current?.isStyleLoaded()) return;
-        const source = map.current.getSource('finds') as maplibregl.GeoJSONSource;
-        if (source) {
-          source.setData({
-            type: 'FeatureCollection',
-            features: filteredFinds.map(f => ({
-              type: 'Feature',
-              geometry: { type: 'Point', coordinates: [f.longitude, f.latitude] },
-              properties: { ...f }
-            }))
-          });
-        }
-      };
+    if (!map.current || loading) return
 
-      if (map.current.loaded()) {
-        updateData();
-      } else {
-        map.current.once('load', updateData);
-      }
+    const updateData = () => {
+      if (!map.current?.isStyleLoaded()) return
+      const source = map.current.getSource('finds') as maplibregl.GeoJSONSource | undefined
+      if (!source) return
+      source.setData({
+        type: 'FeatureCollection',
+        features: filteredFinds.map((find) => ({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [find.longitude, find.latitude] },
+          properties: { id: find.id },
+        })),
+      })
     }
+
+    if (map.current.loaded()) updateData()
+    else map.current.once('load', updateData)
   }, [filteredFinds, loading])
 
-  // Update Click Handler (to avoid stale closures)
   useEffect(() => {
-    const mapInstance = map.current;
-    if (mapInstance) {
-      const onClick = (e: any) => {
-        // Expand the search area to a 40x40px box for easier picking on mobile
-        const bbox: [[number, number], [number, number]] = [
-          [e.point.x - 20, e.point.y - 20],
-          [e.point.x + 20, e.point.y + 20]
-        ];
-        
-        const features = mapInstance.queryRenderedFeatures(bbox, {
-          layers: ['finds-layer']
-        });
+    const mapInstance = map.current
+    if (!mapInstance) return
 
-        if (features && features[0]) {
-          const findId = features[0].properties?.id;
-          const found = filteredFinds.find(f => f.id === findId);
-          if (found) setSelectedFind(found);
-        }
-      };
-      
-      mapInstance.on('click', onClick);
-      
-      return () => {
-        mapInstance.off('click', onClick);
-      };
+    const onClick = (event: maplibregl.MapMouseEvent) => {
+      if (!mapInstance.getLayer('finds-layer')) return
+      const bbox: [[number, number], [number, number]] = [
+        [event.point.x - 22, event.point.y - 22],
+        [event.point.x + 22, event.point.y + 22],
+      ]
+      const features = mapInstance.queryRenderedFeatures(bbox, { layers: ['finds-layer'] })
+      const findId = features[0]?.properties?.id
+      const found = filteredFinds.find((find) => find.id === findId)
+      if (found) setSelectedFind(found)
     }
-  }, [filteredFinds])
+
+    mapInstance.on('click', onClick)
+    return () => {
+      mapInstance.off('click', onClick)
+    }
+  }, [filteredFinds, activeTab])
 
   return (
-    <div className="fixed inset-0 flex flex-col bg-[#050505] text-white overflow-hidden font-sans">
-      {/* Loading Overlay */}
-      {loading && (
-        <div className="fixed inset-0 z-[100] bg-background flex flex-col items-center justify-center space-y-6">
-          <div className="relative">
-            <div className="w-24 h-24 border-2 border-accent/20 rounded-full animate-ping absolute inset-0" />
-            <div className="w-24 h-24 bg-surface border border-white/10 rounded-full flex items-center justify-center relative shadow-2xl shadow-accent/20">
-               <Globe className="w-10 h-10 text-accent animate-pulse" />
+    <div className="fixed inset-0 flex flex-col overflow-hidden bg-[#05070b] text-white font-sans">
+      {loading && <LoadingOverlay />}
+
+      {notice && (
+        <div className="fixed right-4 top-4 z-[120] flex items-center gap-2 rounded-lg border border-emerald-400/25 bg-emerald-500/15 px-4 py-3 text-xs font-bold text-emerald-100 shadow-2xl backdrop-blur">
+          <CheckCircle2 className="h-4 w-4 text-emerald-300" />
+          {notice}
+        </div>
+      )}
+
+      <header className="shrink-0 border-b border-white/10 bg-[#0d1117]/95 shadow-2xl backdrop-blur">
+        <div className="flex min-w-0 items-center justify-between gap-3 px-3 py-3 sm:px-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-accent text-black shadow-lg shadow-accent/10">
+              <Database className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="truncate text-base font-black uppercase tracking-tight sm:text-lg">FossilMapped</h1>
+              <p className="text-[9px] font-black uppercase tracking-[0.16em] text-accent sm:text-[10px]">
+                <span className="sm:hidden">Research portal</span>
+                <span className="hidden sm:inline">Shared palaeo research portal</span>
+              </p>
             </div>
           </div>
-          <div className="flex flex-col items-center gap-2 text-center px-4">
-            <h2 className="text-xl font-black uppercase tracking-[0.3em] text-white">FossilMapped</h2>
-            <div className="flex items-center justify-center gap-3 my-2">
-              <div className="w-2 h-2 bg-accent rounded-full animate-bounce [animation-delay:-0.3s]" />
-              <div className="w-2 h-2 bg-accent rounded-full animate-bounce [animation-delay:-0.15s]" />
-              <div className="w-2 h-2 bg-accent rounded-full animate-bounce" />
+
+          <div className="hidden items-center gap-1 rounded-lg border border-white/10 bg-black/30 p-1 lg:flex">
+            <button onClick={clearFilters} className="rounded-md bg-white/5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-white">
+              Public Records
+            </button>
+            <button
+              onClick={() => {
+                setContactableOnly(true)
+                setShowFilters(true)
+              }}
+              className="rounded-md px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-white/45 transition-colors hover:text-white"
+            >
+              Research Requests
+            </button>
+          </div>
+
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="relative hidden sm:block">
+              <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/35" />
+              <input
+                placeholder="Search taxon, ID, region..."
+                className="h-9 w-56 rounded-lg border border-white/10 bg-black/35 pl-9 pr-3 text-xs outline-none transition-all focus:border-accent/60 xl:w-72"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+              />
             </div>
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40 mt-1 animate-pulse">Synchronizing Global Registry...</p>
+
+            <DataStatusPill status={sourceStatus} />
+
+            <button
+              onClick={() => window.location.reload()}
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-white/10 bg-white/5 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+              title="Refresh registry"
+              aria-label="Refresh registry"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => setShowFilters((value) => !value)}
+              className={`relative grid h-9 w-9 shrink-0 place-items-center rounded-lg border transition-colors ${
+                showFilters || activeFilterCount
+                  ? 'border-accent/40 bg-accent/15 text-accent'
+                  : 'border-white/10 bg-white/5 text-white/60 hover:bg-white/10 hover:text-white'
+              }`}
+              title="Filter records"
+              aria-label="Filter records"
+              aria-pressed={showFilters}
+            >
+              <Filter className="h-4 w-4" />
+              {activeFilterCount > 0 && <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[9px] font-black text-black">{activeFilterCount}</span>}
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <nav className="flex h-12 shrink-0 items-stretch gap-1 overflow-x-auto border-b border-white/10 bg-[#090c10] px-2 scrollbar-hide sm:px-4">
+        {TABS.map((tab) => {
+          const Icon = tab.icon
+          const active = activeTab === tab.id
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex min-w-[4.9rem] shrink-0 items-center justify-center gap-1.5 border-b-2 px-2 text-[10px] font-black uppercase tracking-wide transition-all sm:min-w-0 sm:px-4 ${
+                active ? 'border-accent text-accent' : 'border-transparent text-white/40 hover:text-white'
+              }`}
+            >
+              <Icon className="h-3.5 w-3.5 shrink-0" />
+              <span className="sm:hidden">{tab.shortLabel}</span>
+              <span className="hidden sm:inline">{tab.label}</span>
+            </button>
+          )
+        })}
+      </nav>
+
+      <div className="shrink-0 border-b border-white/10 bg-[#0d1117]/90">
+        <div className="flex min-w-0 items-center gap-2 px-3 py-2 sm:hidden">
+          <div className="relative min-w-0 flex-1">
+            <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/35" />
+            <input
+              placeholder="Search records"
+              className="h-9 w-full rounded-lg border border-white/10 bg-black/35 pl-9 pr-3 text-xs outline-none focus:border-accent/60"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+            />
+          </div>
+          <button onClick={clearFilters} className="h-9 rounded-lg border border-white/10 px-3 text-[10px] font-black uppercase text-white/55">
+            Clear
+          </button>
+        </div>
+
+        {showFilters && (
+          <FilterPanel
+            periods={periods}
+            selectedPeriod={selectedPeriod}
+            setSelectedPeriod={setSelectedPeriod}
+            contactableOnly={contactableOnly}
+            setContactableOnly={setContactableOnly}
+            withPhotosOnly={withPhotosOnly}
+            setWithPhotosOnly={setWithPhotosOnly}
+            highQualityOnly={highQualityOnly}
+            setHighQualityOnly={setHighQualityOnly}
+            clearFilters={clearFilters}
+          />
+        )}
+      </div>
+
+      {sourceStatus === 'demo' && !loading && (
+        <div className="shrink-0 border-b border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-100 sm:px-4">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-300" />
+            <span className="min-w-0 truncate">{sourceMessage || 'Live registry unavailable. Showing demo records.'}</span>
           </div>
         </div>
       )}
 
-      {/* Top Professional Header */}
-      <header className="h-14 px-4 bg-surface border-b border-white/5 flex items-center justify-between z-30 shadow-2xl">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-accent rounded flex items-center justify-center">
-              <Database className="w-5 h-5 text-black" />
-            </div>
-            <div>
-              <h1 className="text-sm font-black tracking-tighter uppercase leading-none">FossilMapped</h1>
-              <p className="text-[9px] text-accent font-bold tracking-[0.2em] uppercase mt-0.5">National Palaeo Database</p>
-            </div>
-          </div>
-          <div className="hidden md:flex items-center gap-1 bg-black/40 rounded-lg p-1 border border-white/5 ml-4">
-             <button className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-md bg-white/5 text-white">Public Records</button>
-             <button className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-md text-white/40 hover:text-white transition-colors">Research Requests</button>
-          </div>
-        </div>
-        
-        <div className="flex items-center gap-2">
-           <div className="relative hidden sm:block">
-             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/30" />
-             <input 
-                placeholder="Search Taxon, ID, Region..." 
-                className="bg-black/40 border border-white/10 rounded-full py-1.5 pl-9 pr-4 text-xs w-64 focus:border-accent/50 outline-none transition-all"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-             />
-           </div>
-           <button 
-             onClick={() => window.location.reload()}
-             className="p-2 rounded-lg hover:bg-white/5 text-white/60 hover:text-white transition-colors"
-             title="Refresh Database"
-           >
-             <Database className="w-4 h-4" />
-           </button>
-           <button className="p-2 rounded-lg hover:bg-white/5">
-             <Filter className="w-4 h-4 text-white/60" />
-           </button>
-        </div>
-      </header>
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
+        <main className="relative flex min-w-0 flex-1 flex-col">
+          <div className="relative min-h-0 flex-1">
+            {activeTab === 'map' && (
+              <>
+                <div ref={mapContainer} className="absolute inset-0 h-full w-full" />
+                <MapHUD
+                  total={filteredFinds.length}
+                  allTotal={finds.length}
+                  sourceStatus={sourceStatus}
+                  quality={filteredAnalytics.averageQuality}
+                  activeFilterCount={activeFilterCount}
+                  clearFilters={clearFilters}
+                  dismissed={mapHudDismissed}
+                  dismiss={() => setMapHudDismissed(true)}
+                />
+              </>
+            )}
 
-      <div className="flex-1 flex overflow-hidden relative">
-        {/* Main Content Area */}
-        <main className="flex-1 relative flex flex-col">
-          {/* Internal View Tabs */}
-          <div className="flex items-center px-4 h-10 border-b border-white/5 bg-surface/50 gap-6 z-20">
-             <button onClick={() => setActiveTab('map')} className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-2 h-full border-b-2 transition-all ${activeTab === 'map' ? 'border-accent text-accent' : 'border-transparent text-white/40 hover:text-white'}`}>
-               <MapIcon className="w-3 h-3" /> Spatial Map
-             </button>
-             <button onClick={() => setActiveTab('database')} className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-2 h-full border-b-2 transition-all ${activeTab === 'database' ? 'border-accent text-accent' : 'border-transparent text-white/40 hover:text-white'}`}>
-               <List className="w-3 h-3" /> Record List
-             </button>
-             <button onClick={() => setActiveTab('gallery')} className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-2 h-full border-b-2 transition-all ${activeTab === 'gallery' ? 'border-accent text-accent' : 'border-transparent text-white/40 hover:text-white'}`}>
-               <Grid className="w-3 h-3" /> Visual Gallery
-             </button>
-             <button onClick={() => setActiveTab('stats')} className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-2 h-full border-b-2 transition-all ${activeTab === 'stats' ? 'border-accent text-accent' : 'border-transparent text-white/40 hover:text-white'}`}>
-               <BarChart3 className="w-3 h-3" /> Analytics
-             </button>
-          </div>
-
-          <div className="flex-1 relative">
-            {activeTab === 'map' && <div ref={mapContainer} className="absolute inset-0 w-full h-full" />}
-            
             {activeTab === 'database' && (
-              <div className="absolute inset-0 overflow-auto bg-[#0a0a0a]">
-                <div className="p-4 bg-surface border-b border-white/5 flex justify-between items-center">
-                   <div className="text-[10px] font-black uppercase tracking-widest text-white/40">Total Records: {filteredFinds.length}</div>
-                   <div className="flex gap-2">
-                      <button onClick={() => exportToCSV(filteredFinds)} className="px-3 py-1.5 bg-accent/10 text-accent border border-accent/20 rounded text-[9px] font-black uppercase tracking-widest hover:bg-accent hover:text-black transition-all">Export CSV</button>
-                      <button onClick={() => exportToJSON(filteredFinds)} className="px-3 py-1.5 bg-white/5 text-white/60 border border-white/10 rounded text-[9px] font-black uppercase tracking-widest hover:bg-white/10 hover:text-white transition-all">Export JSON</button>
-                   </div>
-                </div>
-                <table className="w-full text-left border-collapse min-w-[800px]">
-                  <thead className="sticky top-0 bg-surface z-10 border-b border-white/10">
-                    <tr className="text-[10px] font-black uppercase tracking-widest text-white/40">
-                      <th className="px-6 py-4">Ref ID</th>
-                      <th className="px-6 py-4">Taxon</th>
-                      <th className="px-6 py-4">Period / Stage</th>
-                      <th className="px-6 py-4">Location</th>
-                      <th className="px-6 py-4">Collector</th>
-                      <th className="px-6 py-4">Date</th>
-                      <th className="px-6 py-4 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/5">
-                    {filteredFinds.map(find => (
-                      <tr key={find.id} className="hover:bg-white/[0.02] group transition-colors cursor-pointer" onClick={() => setSelectedFind(find)}>
-                        <td className="px-6 py-4 text-xs font-mono text-accent">{find.id}</td>
-                        <td className="px-6 py-4">
-                           <div className="text-sm font-bold">{find.taxon}</div>
-                           <div className="text-[10px] text-white/40">{find.element}</div>
-                        </td>
-                        <td className="px-6 py-4 text-xs text-white/60">
-                            <div className="font-bold">{find.period}</div>
-                            {find.stage && find.stage !== "Unknown" ? (
-                                <div className="text-[10px] text-accent font-black uppercase tracking-tighter">{find.stage}</div>
-                            ) : (
-                                <div className="text-[8px] text-white/20 italic">No Stage Data</div>
-                            )}
-                        </td>
-                        <td className="px-6 py-4 text-xs text-white/60">{find.locationName}</td>
-                        <td className="px-6 py-4 text-xs text-white/60">{find.collectorName}</td>
-                        <td className="px-6 py-4 text-xs font-mono text-white/40">{find.dateCollected}</td>
-                        <td className="px-6 py-4 text-right">
-                          <button className="p-2 rounded-lg hover:bg-accent/10 hover:text-accent transition-all">
-                            <ChevronRight className="w-4 h-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <DatabaseView
+                finds={filteredFinds}
+                allCount={finds.length}
+                setSelectedFind={setSelectedFind}
+                clearFilters={clearFilters}
+              />
             )}
 
             {activeTab === 'gallery' && (
-              <div className="absolute inset-0 overflow-y-auto p-6 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-                {filteredFinds.map(find => (
-                  <div key={find.id} onClick={() => setSelectedFind(find)} className="group bg-surface rounded-xl overflow-hidden border border-white/5 hover:border-accent/40 transition-all cursor-pointer shadow-lg">
-                    <div className="aspect-square bg-black/40 flex items-center justify-center text-[10px] text-white/10 uppercase tracking-[0.2em] font-black italic relative">
-                      {find.photos && find.photos.length > 0 ? (
-                        <img src={find.photos[0]} alt={find.taxon} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
-                      ) : (
-                        "Restricted Access Image"
-                      )}
-                      <div className="absolute top-2 left-2 flex flex-col gap-1">
-                         <div className="bg-black/60 backdrop-blur-md px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest text-accent border border-accent/20">
-                            {find.period}
-                         </div>
-                         {find.stage && find.stage !== "Unknown" && (
-                           <div className="bg-accent text-black px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest">
-                              {find.stage}
-                           </div>
-                         )}
-                      </div>
-                    </div>
-                    <div className="p-4">
-                      <h3 className="text-sm font-bold leading-tight mb-1">{find.taxon}</h3>
-                      <p className="text-[10px] text-white/40 truncate">{find.locationName}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <GalleryView finds={filteredFinds} setSelectedFind={setSelectedFind} clearFilters={clearFilters} />
+            )}
+
+            {activeTab === 'stats' && (
+              <AnalyticsView
+                analytics={analytics}
+                filteredAnalytics={filteredAnalytics}
+                filteredFinds={filteredFinds}
+                sourceMessage={sourceMessage}
+                sourceStatus={sourceStatus}
+              />
             )}
           </div>
         </main>
 
-        {/* Sidebar Statistics (Researcher Desktop only) */}
-        <aside className="hidden xl:flex flex-col w-80 bg-surface border-l border-white/5 p-6 space-y-8 overflow-y-auto">
-           <div>
-             <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30 mb-4 flex items-center gap-2">
-               <BarChart3 className="w-3 h-3" /> Distribution by Period
-             </h3>
-             <div className="space-y-3">
-               {stats.map(stat => (
-                 <div key={stat.label} className="space-y-1">
-                   <div className="flex justify-between text-[10px] font-bold">
-                     <span>{stat.label}</span>
-                     <span className="text-white/40">{stat.count}%</span>
-                   </div>
-                   <div className="h-1 bg-white/5 rounded-full overflow-hidden">
-                     <div className={`h-full ${stat.color}`} style={{ width: `${stat.count}%` }} />
-                   </div>
-                 </div>
-               ))}
-             </div>
-           </div>
-
-           <div>
-             <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30 mb-4">Registry Activity</h3>
-             <div className="space-y-4">
-               {activity.map(f => (
-                 <div key={f.id} className="flex gap-3 text-[10px]">
-                    <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center shrink-0">
-                      <Globe className="w-4 h-4 text-white/20" />
-                    </div>
-                    <div>
-                      <p className="font-bold">New Record Shared</p>
-                      <p className="text-white/40">{f.taxon} from {f.locationName} added by {f.collectorName}.</p>
-                      <p className="text-accent mt-1">{new Date(f.sharedAt).toLocaleDateString()}</p>
-                    </div>
-                 </div>
-               ))}
-             </div>
-           </div>
-        </aside>
+        <ResearchSidebar analytics={analytics} activity={analytics.activity} sourceStatus={sourceStatus} />
       </div>
 
-      {/* Detail Overlay (Modal) */}
       {selectedFind && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-12">
-          <div className="absolute inset-0 bg-black/90 backdrop-blur-sm" onClick={() => setSelectedFind(null)} />
-          <div className="relative w-full max-w-5xl bg-surface border border-white/10 rounded-3xl overflow-hidden shadow-2xl flex flex-col md:flex-row max-h-[90vh]">
-             {/* Left: Visuals */}
-             <div className="w-full md:w-1/2 bg-black flex flex-col h-[400px] md:h-auto">
-                <div className="flex-1 flex items-center justify-center relative group overflow-hidden bg-[#050505]">
-                  {selectedFind.photos && selectedFind.photos.length > 0 ? (
-                    <img src={selectedFind.photos[0]} alt={selectedFind.taxon} className="w-full h-full object-contain" />
-                  ) : (
-                    <span className="text-white/10 text-xs italic font-black uppercase tracking-widest">Scientific Documentation Required</span>
-                  )}
-                  <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-lg border border-white/10 flex items-center gap-2">
-                    <Eye className="w-3 h-3 text-accent" />
-                    <span className="text-[10px] font-black uppercase tracking-wider">Authenticated View</span>
-                  </div>
-                </div>
-                <div className="h-20 border-t border-white/5 p-3 flex gap-2 bg-surface">
-                  {selectedFind.photos && selectedFind.photos.map((photo, i) => (
-                    <div key={i} className="w-16 h-full bg-black/40 rounded-lg border border-white/10 overflow-hidden cursor-pointer hover:border-accent transition-all">
-                       <img src={photo} alt={`${selectedFind.taxon} ${i+1}`} className="w-full h-full object-cover" />
-                    </div>
-                  ))}
-                  {(!selectedFind.photos || selectedFind.photos.length === 0) && [1, 2, 3, 4].map(i => (
-                    <div key={i} className="w-16 h-full bg-white/5 rounded-lg border border-white/10 flex items-center justify-center text-[8px] text-white/20 font-bold uppercase text-center p-1">Slot {i}</div>
-                  ))}
-                </div>
-             </div>
-
-             {/* Right: Technical Metadata */}
-             <div className="w-full md:w-1/2 overflow-y-auto p-8 custom-scrollbar">
-                <div className="flex justify-between items-start mb-6">
-                  <div>
-                    <div className="flex items-center gap-2 text-accent mb-2">
-                      <Hash className="w-4 h-4" />
-                      <span className="text-xs font-mono font-bold tracking-tighter">{selectedFind.id}</span>
-                    </div>
-                    <h2 className="text-3xl font-black leading-none mb-1 italic">{selectedFind.taxon}</h2>
-                    <p className="text-sm text-white/60 font-medium">{selectedFind.element}</p>
-                  </div>
-                  <button onClick={() => setSelectedFind(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
-                    <Info className="w-6 h-6 rotate-45" />
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4 mb-8">
-                   <div className="bg-black/30 p-4 rounded-2xl border border-white/5">
-                      <div className="flex items-center gap-2 text-white/30 mb-2">
-                        <Layers className="w-3 h-3" />
-                        <span className="text-[9px] font-black uppercase tracking-wider">Stratigraphy</span>
-                      </div>
-                      <div className="text-sm font-bold">{selectedFind.period}</div>
-                      {selectedFind.stage && selectedFind.stage !== "Unknown" && <div className="text-[10px] text-accent/70 font-bold uppercase tracking-widest mt-1">{selectedFind.stage}</div>}
-                   </div>
-                   <div className="bg-black/30 p-4 rounded-2xl border border-white/5">
-                      <div className="flex items-center gap-2 text-white/30 mb-2">
-                        <MapPin className="w-3 h-3" />
-                        <span className="text-[9px] font-black uppercase tracking-wider">Provenance</span>
-                      </div>
-                      <div className="text-sm font-bold">{selectedFind.locationName}</div>
-                   </div>
-                   <div className="bg-black/30 p-4 rounded-2xl border border-white/5">
-                      <div className="flex items-center gap-2 text-white/30 mb-2">
-                        <User className="w-3 h-3" />
-                        <span className="text-[9px] font-black uppercase tracking-wider">Collector</span>
-                      </div>
-                      <div className="text-sm font-bold">{selectedFind.collectorName}</div>
-                   </div>
-                   <div className="bg-black/30 p-4 rounded-2xl border border-white/5">
-                      <div className="flex items-center gap-2 text-white/30 mb-2">
-                        <Calendar className="w-3 h-3" />
-                        <span className="text-[9px] font-black uppercase tracking-wider">Date Found</span>
-                      </div>
-                      <div className="text-sm font-bold font-mono">{selectedFind.dateCollected}</div>
-                   </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4 mb-8">
-                   <div className="bg-accent/5 p-4 rounded-2xl border border-accent/20">
-                      <div className="flex items-center gap-2 text-accent/50 mb-2">
-                        <Eye className="w-3 h-3" />
-                        <span className="text-[9px] font-black uppercase tracking-wider">Quality Score</span>
-                      </div>
-                      <div className="text-xl font-black text-accent">{(selectedFind as any).quality_score || 0}%</div>
-                   </div>
-                   <div className="bg-white/5 p-4 rounded-2xl border border-white/10">
-                      <div className="flex items-center gap-2 text-white/30 mb-2">
-                        <Database className="w-3 h-3" />
-                        <span className="text-[9px] font-black uppercase tracking-wider">Repository</span>
-                      </div>
-                      <div className="text-xs font-bold font-mono">{(selectedFind as any).repository || "Private"}</div>
-                   </div>
-                </div>
-
-                <div className="mb-8">
-                  <div className="flex items-center gap-2 text-white/30 mb-4">
-                    <Ruler className="w-3 h-3" />
-                    <span className="text-[9px] font-black uppercase tracking-wider">Morphometrics (mm)</span>
-                  </div>
-                  <div className="grid grid-cols-4 gap-2 text-center">
-                    {Object.entries(selectedFind.measurements || {}).map(([key, val]) => (
-                      <div key={key} className="bg-black/20 py-3 rounded-xl border border-white/5">
-                        <div className="text-[8px] font-black text-white/40 uppercase mb-1">{key}</div>
-                        <div className="text-xs font-mono font-bold text-accent">{val}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {selectedFind.notes && (
-                  <div className="mb-8">
-                    <div className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-3">Researcher Notes</div>
-                    <div className="bg-accent/5 border border-accent/10 p-5 rounded-2xl text-xs leading-relaxed text-white/80 italic">
-                      "{selectedFind.notes}"
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex flex-col gap-3">
-                   <button 
-                     onClick={() => downloadBibTeX(selectedFind)}
-                     className="w-full py-4 bg-accent text-black rounded-2xl font-black uppercase tracking-widest text-xs hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl shadow-accent/10"
-                   >
-                     Download Full Citation (BibTeX)
-                   </button>
-                   <button 
-                     onClick={() => {
-                       if (selectedFind.collectorEmail) {
-                         window.location.href = `mailto:${selectedFind.collectorEmail}?subject=Access Request: ${selectedFind.taxon} (${selectedFind.id})&body=Hello ${selectedFind.collectorName},%0D%0A%0D%0AI saw your find of ${selectedFind.taxon} on FossilMapped and would like to request more information or access for research purposes.`;
-                       } else {
-                         alert("This collector has not provided a contact email.");
-                       }
-                     }}
-                     className="w-full py-4 bg-white/5 text-white/60 rounded-2xl font-bold text-xs hover:bg-white/10 transition-all border border-white/5"
-                   >
-                     Contact Collector for Access
-                   </button>
-                </div>
-             </div>
-          </div>
-        </div>
+        <FindDetailModal
+          find={selectedFind}
+          close={() => setSelectedFind(null)}
+          downloadBibTeX={downloadBibTeX}
+          requestAccess={requestAccess}
+        />
       )}
     </div>
   )
+}
+
+function LoadingOverlay() {
+  return (
+    <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-6 bg-[#05070b]">
+      <div className="relative">
+        <div className="absolute inset-0 h-24 w-24 animate-ping rounded-full border border-accent/25" />
+        <div className="relative grid h-24 w-24 place-items-center rounded-full border border-white/10 bg-surface shadow-2xl shadow-accent/15">
+          <Globe className="h-10 w-10 animate-pulse text-accent" />
+        </div>
+      </div>
+      <div className="px-4 text-center">
+        <h2 className="text-xl font-black uppercase tracking-[0.3em]">FossilMapped</h2>
+        <div className="my-4 flex justify-center gap-3">
+          <div className="h-2 w-2 animate-bounce rounded-full bg-accent [animation-delay:-0.3s]" />
+          <div className="h-2 w-2 animate-bounce rounded-full bg-accent [animation-delay:-0.15s]" />
+          <div className="h-2 w-2 animate-bounce rounded-full bg-accent" />
+        </div>
+        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">Synchronizing shared registry</p>
+      </div>
+    </div>
+  )
+}
+
+function DataStatusPill({ status }: { status: SourceStatus }) {
+  const label = status === 'live' ? 'Live' : status === 'demo' ? 'Demo' : status === 'empty' ? 'Empty' : 'Sync'
+  const tone = status === 'live'
+    ? 'border-emerald-400/25 bg-emerald-400/10 text-emerald-200'
+    : status === 'demo'
+    ? 'border-amber-400/25 bg-amber-400/10 text-amber-200'
+    : 'border-white/10 bg-white/5 text-white/50'
+  return (
+    <span className={`hidden h-9 items-center rounded-lg border px-3 text-[10px] font-black uppercase tracking-wider sm:inline-flex ${tone}`}>
+      {label}
+    </span>
+  )
+}
+
+function FilterPanel(props: {
+  periods: string[]
+  selectedPeriod: string
+  setSelectedPeriod: (value: string) => void
+  contactableOnly: boolean
+  setContactableOnly: (value: boolean) => void
+  withPhotosOnly: boolean
+  setWithPhotosOnly: (value: boolean) => void
+  highQualityOnly: boolean
+  setHighQualityOnly: (value: boolean) => void
+  clearFilters: () => void
+}) {
+  return (
+    <div className="grid gap-3 px-3 py-3 sm:px-4 lg:grid-cols-[1fr_auto] lg:items-center">
+      <div className="flex min-w-0 items-center gap-2 overflow-x-auto scrollbar-hide">
+        <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-white/35">Period</span>
+        {props.periods.map((period) => (
+          <button
+            key={period}
+            onClick={() => props.setSelectedPeriod(period)}
+            className={`shrink-0 rounded-lg border px-3 py-1.5 text-[10px] font-black uppercase transition-colors ${
+              props.selectedPeriod === period ? 'border-accent bg-accent text-black' : 'border-white/10 bg-white/5 text-white/60 hover:text-white'
+            }`}
+          >
+            {period}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex min-w-0 gap-2 overflow-x-auto scrollbar-hide">
+        <ToggleChip label="Contactable" active={props.contactableOnly} setActive={props.setContactableOnly} />
+        <ToggleChip label="With photos" active={props.withPhotosOnly} setActive={props.setWithPhotosOnly} />
+        <ToggleChip label="Quality 70+" active={props.highQualityOnly} setActive={props.setHighQualityOnly} />
+        <button onClick={props.clearFilters} className="shrink-0 rounded-lg border border-white/10 px-3 py-1.5 text-[10px] font-black uppercase text-white/50 hover:text-white">
+          Reset
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function ToggleChip({ label, active, setActive }: { label: string; active: boolean; setActive: (value: boolean) => void }) {
+  return (
+    <button
+      onClick={() => setActive(!active)}
+      className={`shrink-0 rounded-lg border px-3 py-1.5 text-[10px] font-black uppercase transition-colors ${
+        active ? 'border-accent/70 bg-accent/15 text-accent' : 'border-white/10 bg-white/5 text-white/55 hover:text-white'
+      }`}
+    >
+      {label}
+    </button>
+  )
+}
+
+function MapHUD({ total, allTotal, sourceStatus, quality, activeFilterCount, clearFilters, dismissed, dismiss }: {
+  total: number
+  allTotal: number
+  sourceStatus: SourceStatus
+  quality: number
+  activeFilterCount: number
+  clearFilters: () => void
+  dismissed: boolean
+  dismiss: () => void
+}) {
+  return (
+    <div className={`pointer-events-none absolute left-3 right-3 top-3 z-10 flex-col gap-3 sm:left-4 sm:right-auto sm:flex sm:w-80 ${dismissed ? 'hidden' : 'flex'}`}>
+      <div className="pointer-events-auto rounded-lg border border-white/10 bg-[#0d1117]/90 p-4 shadow-2xl backdrop-blur">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-accent">Registry map</p>
+            <h2 className="mt-1 text-2xl font-black">{total} records</h2>
+          </div>
+          <div className="flex items-center gap-2">
+            <Globe className="hidden h-5 w-5 text-white/35 sm:block" />
+            <button
+              type="button"
+              onClick={dismiss}
+              className="grid h-8 w-8 place-items-center rounded-lg border border-white/10 bg-white/5 text-white/55 transition-colors hover:bg-white/10 hover:text-white sm:hidden"
+              aria-label="Hide map summary"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+        <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+          <MiniMetric label="Total" value={allTotal} />
+          <MiniMetric label="Quality" value={`${quality}%`} />
+          <MiniMetric label="Source" value={sourceStatus === 'live' ? 'Live' : sourceStatus === 'demo' ? 'Demo' : 'Open'} />
+        </div>
+        {activeFilterCount > 0 && (
+          <button onClick={clearFilters} className="mt-3 w-full rounded-lg border border-accent/25 bg-accent/10 px-3 py-2 text-[10px] font-black uppercase text-accent">
+            Clear map filters
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function MiniMetric({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-black/25 px-2 py-2">
+      <div className="text-sm font-black text-white">{value}</div>
+      <div className="mt-0.5 text-[8px] font-black uppercase tracking-wider text-white/35">{label}</div>
+    </div>
+  )
+}
+
+function MiniLabel({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="min-w-0 rounded-lg border border-white/10 bg-black/20 p-3">
+      <div className="text-[8px] font-black uppercase tracking-wider text-white/35">{label}</div>
+      <div className="mt-1 truncate font-bold text-white/80">{value}</div>
+    </div>
+  )
+}
+
+function DatabaseView({ finds, allCount, setSelectedFind, clearFilters }: {
+  finds: SharedFind[]
+  allCount: number
+  setSelectedFind: (find: SharedFind) => void
+  clearFilters: () => void
+}) {
+  return (
+    <div className="absolute inset-0 overflow-auto bg-[#07090d]">
+      <div className="sticky top-0 z-20 flex flex-col gap-3 border-b border-white/10 bg-[#0d1117]/95 p-4 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-widest text-white/40">Research dataset</p>
+          <h2 className="mt-1 text-lg font-black">{finds.length} visible records</h2>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => exportToCSV(finds)} className="inline-flex items-center justify-center gap-2 rounded-lg border border-accent/25 bg-accent/10 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-accent transition-colors hover:bg-accent hover:text-black">
+            <Download className="h-3.5 w-3.5" />
+            CSV
+          </button>
+          <button onClick={() => exportToJSON(finds)} className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-white/65 transition-colors hover:bg-white/10 hover:text-white">
+            <Download className="h-3.5 w-3.5" />
+            JSON
+          </button>
+        </div>
+      </div>
+
+      {finds.length === 0 ? (
+        <EmptyState title="No matching records" detail={`${allCount} records are available before filters.`} action="Clear filters" onAction={clearFilters} />
+      ) : (
+        <>
+          <div className="grid gap-3 p-4 sm:hidden">
+            {finds.map((find) => (
+              <button
+                key={find.id}
+                onClick={() => setSelectedFind(find)}
+                className="rounded-lg border border-white/10 bg-surface p-4 text-left transition-colors hover:border-accent/40"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-[11px] font-mono text-accent">{find.id}</div>
+                    <h3 className="mt-2 text-lg font-black italic leading-tight">{find.taxon}</h3>
+                    <p className="mt-1 text-sm text-white/45">{find.element || 'Specimen'}</p>
+                  </div>
+                  <QualityBadge value={getQuality(find)} />
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-2 text-[11px]">
+                  <MiniLabel label="Stratigraphy" value={[find.period, find.stage || find.formation].filter(Boolean).join(' / ') || 'Unknown'} />
+                  <MiniLabel label="Location" value={find.locationName} />
+                  <MiniLabel label="Collector" value={find.collectorName} />
+                  <MiniLabel label="Repository" value={find.repository || 'Private'} />
+                </div>
+                {find.collectorEmail && <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-emerald-400/10 px-2 py-1 text-[9px] font-black uppercase text-emerald-200"><Mail className="h-3 w-3" /> Contactable</div>}
+              </button>
+            ))}
+          </div>
+
+          <table className="hidden w-full min-w-[980px] border-collapse text-left sm:table">
+          <thead className="sticky top-[89px] z-10 border-b border-white/10 bg-[#0d1117] text-[10px] font-black uppercase tracking-widest text-white/40 sm:top-[73px]">
+            <tr>
+              <th className="px-5 py-4">Ref ID</th>
+              <th className="px-5 py-4">Taxon</th>
+              <th className="px-5 py-4">Stratigraphy</th>
+              <th className="px-5 py-4">Location</th>
+              <th className="px-5 py-4">Collector</th>
+              <th className="px-5 py-4">Quality</th>
+              <th className="px-5 py-4 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/5">
+            {finds.map((find) => (
+              <tr key={find.id} onClick={() => setSelectedFind(find)} className="group cursor-pointer transition-colors hover:bg-white/[0.03]">
+                <td className="px-5 py-4 text-xs font-mono text-accent">{find.id}</td>
+                <td className="px-5 py-4">
+                  <div className="text-sm font-bold italic">{find.taxon}</div>
+                  <div className="text-[10px] text-white/40">{find.element || 'Specimen'}</div>
+                </td>
+                <td className="px-5 py-4 text-xs text-white/60">
+                  <div className="font-bold">{find.period || 'Unknown'}</div>
+                  <div className="text-[10px] font-black uppercase tracking-tight text-accent/80">{find.stage || find.formation || 'No finer stratigraphy'}</div>
+                </td>
+                <td className="px-5 py-4 text-xs text-white/60">{find.locationName}</td>
+                <td className="px-5 py-4 text-xs text-white/60">
+                  <div>{find.collectorName}</div>
+                  {find.collectorEmail && <div className="mt-1 text-[9px] font-black uppercase text-emerald-300/70">Contactable</div>}
+                </td>
+                <td className="px-5 py-4">
+                  <QualityBadge value={getQuality(find)} />
+                </td>
+                <td className="px-5 py-4 text-right">
+                  <button className="rounded-lg p-2 transition-all hover:bg-accent/10 hover:text-accent" aria-label={`Open ${find.id}`}>
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          </table>
+        </>
+      )}
+    </div>
+  )
+}
+
+function GalleryView({ finds, setSelectedFind, clearFilters }: {
+  finds: SharedFind[]
+  setSelectedFind: (find: SharedFind) => void
+  clearFilters: () => void
+}) {
+  if (finds.length === 0) {
+    return <div className="absolute inset-0 bg-[#07090d]"><EmptyState title="No gallery records" detail="No records match the current discovery filters." action="Clear filters" onAction={clearFilters} /></div>
+  }
+
+  return (
+    <div className="absolute inset-0 grid auto-rows-max grid-cols-1 gap-4 overflow-y-auto bg-[#07090d] p-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+      {finds.map((find) => (
+        <button key={find.id} onClick={() => setSelectedFind(find)} className="group overflow-hidden rounded-lg border border-white/10 bg-surface text-left shadow-lg transition-all hover:border-accent/45 hover:bg-white/[0.04]">
+          <div className="relative aspect-[4/3] bg-black/40">
+            {find.photos && find.photos.length > 0 ? (
+              <img src={find.photos[0]} alt={find.taxon} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />
+            ) : (
+              <div className="grid h-full place-items-center text-white/18">
+                <div className="text-center">
+                  <Image className="mx-auto h-8 w-8" />
+                  <p className="mt-2 text-[10px] font-black uppercase tracking-widest">No public image</p>
+                </div>
+              </div>
+            )}
+            <div className="absolute left-2 top-2 flex flex-wrap gap-1">
+              <span className="rounded bg-black/70 px-2 py-1 text-[8px] font-black uppercase tracking-wider text-accent backdrop-blur">{find.period || 'Unknown'}</span>
+              {find.stage && <span className="rounded bg-accent px-2 py-1 text-[8px] font-black uppercase tracking-wider text-black">{find.stage}</span>}
+            </div>
+            <div className="absolute right-2 top-2">
+              <QualityBadge value={getQuality(find)} />
+            </div>
+          </div>
+          <div className="p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="truncate text-sm font-black italic">{find.taxon}</h3>
+                <p className="mt-1 truncate text-[11px] text-white/45">{find.locationName}</p>
+              </div>
+              {find.collectorEmail && <Mail className="h-4 w-4 shrink-0 text-emerald-300/70" />}
+            </div>
+            <div className="mt-3 flex items-center justify-between text-[10px] font-bold text-white/35">
+              <span className="truncate">{find.repository || 'Private'}</span>
+              <span>{formatDate(find.sharedAt)}</span>
+            </div>
+          </div>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function AnalyticsView({ analytics, filteredAnalytics, filteredFinds, sourceMessage, sourceStatus }: {
+  analytics: Analytics
+  filteredAnalytics: Analytics
+  filteredFinds: SharedFind[]
+  sourceMessage: string
+  sourceStatus: SourceStatus
+}) {
+  const readiness = [
+    { label: 'Contactable records', value: analytics.contactable, total: analytics.total },
+    { label: 'Photo backed', value: analytics.withPhotos, total: analytics.total },
+    { label: 'Repository declared', value: analytics.withRepository, total: analytics.total },
+    { label: 'Quality 70+', value: analytics.highQuality, total: analytics.total },
+  ]
+
+  return (
+    <div className="absolute inset-0 overflow-y-auto bg-[#07090d] p-4 sm:p-6">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.22em] text-accent">Portal analytics</p>
+          <h2 className="mt-2 text-2xl font-black sm:text-3xl">Research readiness dashboard</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-relaxed text-white/55">A quick view of whether shared finds are citable, contactable, photographically supported, and stratigraphically useful.</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => exportToCSV(filteredFinds)} className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-[10px] font-black uppercase text-black">
+            <Download className="h-3.5 w-3.5" />
+            Export visible
+          </button>
+          <button onClick={() => exportToJSON(filteredFinds)} className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[10px] font-black uppercase text-white/65">
+            <Download className="h-3.5 w-3.5" />
+            JSON
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        <MetricCard icon={Database} label="Records" value={analytics.total} detail={`${filteredAnalytics.total} visible`} />
+        <MetricCard icon={User} label="Contributors" value={analytics.contributors} detail="Distinct collectors" />
+        <MetricCard icon={Mail} label="Contactable" value={analytics.contactable} detail={`${percent(analytics.contactable, analytics.total)}% of records`} />
+        <MetricCard icon={Eye} label="Avg quality" value={`${analytics.averageQuality}%`} detail="Completeness score" />
+      </div>
+
+      <div className="mt-6 grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <section className="rounded-lg border border-white/10 bg-surface p-5">
+          <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-white/35">Distribution by period</h3>
+          <div className="mt-5 space-y-4">
+            {analytics.periods.length > 0 ? analytics.periods.map((item) => (
+              <DistributionBar key={item.label} label={item.label} count={item.count} percent={item.percent} />
+            )) : (
+              <p className="text-sm text-white/45">No period data available.</p>
+            )}
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-white/10 bg-surface p-5">
+          <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-white/35">Research readiness</h3>
+          <div className="mt-5 space-y-4">
+            {readiness.map((item) => (
+              <DistributionBar key={item.label} label={item.label} count={item.value} percent={percent(item.value, item.total)} />
+            ))}
+          </div>
+        </section>
+      </div>
+
+      <div className="mt-6 grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+        <section className="rounded-lg border border-white/10 bg-surface p-5">
+          <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-white/35">Data source</h3>
+          <div className={`mt-4 rounded-lg border p-4 text-sm leading-relaxed ${
+            sourceStatus === 'live' ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100' : sourceStatus === 'demo' ? 'border-amber-400/20 bg-amber-400/10 text-amber-100' : 'border-white/10 bg-white/5 text-white/55'
+          }`}>
+            {sourceMessage || 'Registry status unavailable.'}
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-white/10 bg-surface p-5">
+          <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-white/35">Recent activity</h3>
+          <div className="mt-5 grid gap-3">
+            {analytics.activity.map((find) => (
+              <ActivityItem key={find.id} find={find} />
+            ))}
+          </div>
+        </section>
+      </div>
+    </div>
+  )
+}
+
+function ResearchSidebar({ analytics, activity, sourceStatus }: { analytics: Analytics; activity: SharedFind[]; sourceStatus: SourceStatus }) {
+  return (
+    <aside className="hidden w-80 shrink-0 flex-col overflow-y-auto border-l border-white/10 bg-[#0d1117] p-5 xl:flex">
+      <div className="rounded-lg border border-white/10 bg-black/20 p-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-white/35">Portal status</h3>
+          <DataStatusPill status={sourceStatus} />
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <MiniMetric label="Records" value={analytics.total} />
+          <MiniMetric label="Quality" value={`${analytics.averageQuality}%`} />
+          <MiniMetric label="Contacts" value={analytics.contactable} />
+          <MiniMetric label="Photos" value={analytics.withPhotos} />
+        </div>
+      </div>
+
+      <div className="mt-7">
+        <h3 className="mb-4 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-white/35">
+          <BarChart3 className="h-3 w-3" />
+          Distribution by period
+        </h3>
+        <div className="space-y-3">
+          {analytics.periods.slice(0, 6).map((item) => (
+            <DistributionBar key={item.label} label={item.label} count={item.count} percent={item.percent} compact />
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-8">
+        <h3 className="mb-4 text-[10px] font-black uppercase tracking-[0.2em] text-white/35">Registry activity</h3>
+        <div className="space-y-4">
+          {activity.map((find) => (
+            <ActivityItem key={find.id} find={find} compact />
+          ))}
+        </div>
+      </div>
+    </aside>
+  )
+}
+
+function FindDetailModal({ find, close, downloadBibTeX, requestAccess }: {
+  find: SharedFind
+  close: () => void
+  downloadBibTeX: (find: SharedFind) => void
+  requestAccess: (find: SharedFind) => void
+}) {
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-8">
+      <button className="absolute inset-0 bg-black/88 backdrop-blur-sm" onClick={close} aria-label="Close detail" />
+      <div className="relative flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-white/10 bg-surface shadow-2xl md:flex-row">
+        <div className="flex h-72 w-full flex-col bg-black md:h-auto md:w-[46%]">
+          <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-[#050505]">
+            {find.photos && find.photos.length > 0 ? (
+              <img src={find.photos[0]} alt={find.taxon} className="h-full w-full object-contain" />
+            ) : (
+              <div className="text-center text-white/16">
+                <Image className="mx-auto h-10 w-10" />
+                <p className="mt-3 text-xs font-black uppercase tracking-widest">Scientific documentation required</p>
+              </div>
+            )}
+            <div className="absolute left-4 top-4 flex items-center gap-2 rounded-lg border border-white/10 bg-black/65 px-3 py-1.5 backdrop-blur">
+              <Eye className="h-3 w-3 text-accent" />
+              <span className="text-[10px] font-black uppercase tracking-wider">Public metadata view</span>
+            </div>
+          </div>
+          <div className="flex h-20 gap-2 border-t border-white/10 bg-[#0d1117] p-3">
+            {find.photos && find.photos.length > 0 ? find.photos.map((photo, index) => (
+              <div key={photo} className="h-full w-16 overflow-hidden rounded-lg border border-white/10 bg-black/40">
+                <img src={photo} alt={`${find.taxon} ${index + 1}`} className="h-full w-full object-cover" />
+              </div>
+            )) : [1, 2, 3, 4].map((slot) => (
+              <div key={slot} className="grid h-full w-16 place-items-center rounded-lg border border-white/10 bg-white/5 p-1 text-center text-[8px] font-bold uppercase text-white/20">Slot {slot}</div>
+            ))}
+          </div>
+        </div>
+
+        <div className="min-h-0 w-full overflow-y-auto p-5 custom-scrollbar sm:p-7 md:w-[54%]">
+          <div className="mb-6 flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="mb-2 flex items-center gap-2 text-accent">
+                <Hash className="h-4 w-4" />
+                <span className="truncate text-xs font-bold tracking-tight">{find.id}</span>
+              </div>
+              <h2 className="text-2xl font-black leading-tight italic sm:text-3xl">{find.taxon}</h2>
+              <p className="mt-1 text-sm font-medium text-white/60">{find.element || 'Specimen'}</p>
+            </div>
+            <button onClick={close} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-white/10 bg-white/5 transition-colors hover:bg-white/10" aria-label="Close detail">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <InfoTile icon={Layers} label="Stratigraphy" primary={find.period || 'Unknown'} secondary={[find.stage, find.formation, find.member, find.bed].filter(Boolean).join(' / ')} />
+            <InfoTile icon={MapPin} label="Provenance" primary={find.locationName} secondary={`${find.latitude.toFixed(4)}, ${find.longitude.toFixed(4)}`} />
+            <InfoTile icon={User} label="Collector" primary={find.collectorName} secondary={find.collectorEmail ? 'Contact available' : 'No public contact'} />
+            <InfoTile icon={Calendar} label="Date found" primary={formatDate(find.dateCollected)} secondary={`Shared ${formatDate(find.sharedAt)}`} />
+            <InfoTile icon={Eye} label="Quality score" primary={`${getQuality(find)}%`} secondary="Completeness estimate" accent />
+            <InfoTile icon={Archive} label="Repository" primary={find.repository || 'Private'} secondary={find.accession_id || 'No accession ID'} />
+          </div>
+
+          <div className="mt-6">
+            <div className="mb-3 flex items-center gap-2 text-white/35">
+              <Ruler className="h-3.5 w-3.5" />
+              <span className="text-[9px] font-black uppercase tracking-wider">Morphometrics</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {measurementEntries(find).length > 0 ? measurementEntries(find).map(([key, value]) => (
+                <div key={key} className="rounded-lg border border-white/10 bg-black/20 px-3 py-3 text-center">
+                  <div className="mb-1 text-[8px] font-black uppercase text-white/40">{key}</div>
+                  <div className="text-xs font-bold text-accent">{value}</div>
+                </div>
+              )) : (
+                <div className="col-span-full rounded-lg border border-white/10 bg-black/20 p-4 text-sm text-white/45">No measurements shared.</div>
+              )}
+            </div>
+          </div>
+
+          {find.notes && (
+            <div className="mt-6">
+              <div className="mb-3 text-[9px] font-black uppercase tracking-widest text-white/35">Researcher notes</div>
+              <div className="rounded-lg border border-accent/10 bg-accent/5 p-4 text-sm italic leading-relaxed text-white/80">{find.notes}</div>
+            </div>
+          )}
+
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            <button onClick={() => downloadBibTeX(find)} className="inline-flex items-center justify-center gap-2 rounded-lg bg-accent px-4 py-3 text-xs font-black uppercase tracking-wider text-black transition-transform active:scale-[0.98]">
+              <Download className="h-4 w-4" />
+              Citation
+            </button>
+            <button
+              onClick={() => requestAccess(find)}
+              disabled={!find.collectorEmail}
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-xs font-bold text-white/65 transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Mail className="h-4 w-4" />
+              Request access
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function InfoTile({ icon: Icon, label, primary, secondary, accent }: {
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  primary: React.ReactNode
+  secondary?: React.ReactNode
+  accent?: boolean
+}) {
+  return (
+    <div className={`rounded-lg border p-4 ${accent ? 'border-accent/20 bg-accent/5' : 'border-white/10 bg-black/20'}`}>
+      <div className={`mb-2 flex items-center gap-2 ${accent ? 'text-accent/60' : 'text-white/35'}`}>
+        <Icon className="h-3.5 w-3.5" />
+        <span className="text-[9px] font-black uppercase tracking-wider">{label}</span>
+      </div>
+      <div className={`text-sm font-bold ${accent ? 'text-accent' : 'text-white'}`}>{primary}</div>
+      {secondary && <div className="mt-1 text-[10px] font-medium text-white/45">{secondary}</div>}
+    </div>
+  )
+}
+
+function MetricCard({ icon: Icon, label, value, detail }: {
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  value: React.ReactNode
+  detail: string
+}) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-surface p-4 sm:p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-widest text-white/35">{label}</p>
+          <div className="mt-2 text-2xl font-black sm:text-3xl">{value}</div>
+        </div>
+        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-accent/10 text-accent sm:h-10 sm:w-10">
+          <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
+        </div>
+      </div>
+      <p className="mt-3 text-xs text-white/45">{detail}</p>
+    </div>
+  )
+}
+
+function DistributionBar({ label, count, percent: value, compact }: { label: string; count: number; percent: number; compact?: boolean }) {
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between gap-3 text-xs">
+        <span className={`truncate font-bold ${compact ? 'text-white/75' : 'text-white'}`}>{label}</span>
+        <span className="shrink-0 font-mono text-white/40">{count} / {value}%</span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-white/8">
+        <div className="h-full rounded-full bg-accent" style={{ width: `${value}%` }} />
+      </div>
+    </div>
+  )
+}
+
+function ActivityItem({ find, compact }: { find: SharedFind; compact?: boolean }) {
+  return (
+    <div className="flex gap-3 text-[11px]">
+      <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-white/5">
+        <Globe className="h-4 w-4 text-white/25" />
+      </div>
+      <div className="min-w-0">
+        <p className="font-bold text-white">Record shared</p>
+        <p className={`mt-0.5 text-white/45 ${compact ? 'line-clamp-2' : ''}`}>{find.taxon} from {find.locationName} by {find.collectorName}.</p>
+        <p className="mt-1 text-accent">{formatDate(find.sharedAt)}</p>
+      </div>
+    </div>
+  )
+}
+
+function QualityBadge({ value }: { value: number }) {
+  const tone = value >= 70 ? 'border-emerald-400/25 bg-emerald-400/10 text-emerald-200' : value >= 40 ? 'border-amber-400/25 bg-amber-400/10 text-amber-200' : 'border-white/10 bg-white/5 text-white/45'
+  return <span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-black uppercase ${tone}`}>{value}%</span>
+}
+
+function EmptyState({ title, detail, action, onAction }: { title: string; detail: string; action: string; onAction: () => void }) {
+  return (
+    <div className="grid min-h-full place-items-center p-6">
+      <div className="max-w-sm text-center">
+        <div className="mx-auto grid h-12 w-12 place-items-center rounded-lg border border-white/10 bg-white/5 text-white/35">
+          <Database className="h-6 w-6" />
+        </div>
+        <h2 className="mt-4 text-xl font-black">{title}</h2>
+        <p className="mt-2 text-sm leading-relaxed text-white/45">{detail}</p>
+        <button onClick={onAction} className="mt-5 rounded-lg bg-accent px-4 py-2 text-xs font-black uppercase text-black">{action}</button>
+      </div>
+    </div>
+  )
+}
+
+type Analytics = ReturnType<typeof buildAnalytics>
+
+function buildAnalytics(finds: SharedFind[]) {
+  const total = finds.length
+  const contributors = new Set(finds.map((find) => find.collectorName).filter(Boolean)).size
+  const contactable = finds.filter((find) => !!find.collectorEmail).length
+  const withPhotos = finds.filter((find) => (find.photos?.length || 0) > 0).length
+  const withRepository = finds.filter((find) => !!find.repository && find.repository.toLowerCase() !== 'private').length
+  const highQuality = finds.filter((find) => getQuality(find) >= 70).length
+  const averageQuality = total ? Math.round(finds.reduce((sum, find) => sum + getQuality(find), 0) / total) : 0
+  const periodCounts = finds.reduce<Record<string, number>>((acc, find) => {
+    const label = normalise(find.period) || 'Unknown'
+    acc[label] = (acc[label] || 0) + 1
+    return acc
+  }, {})
+  const periods = Object.entries(periodCounts)
+    .map(([label, count]) => ({ label, count, percent: percent(count, total) }))
+    .sort((a, b) => b.count - a.count)
+  const activity = [...finds].sort((a, b) => new Date(b.sharedAt).getTime() - new Date(a.sharedAt).getTime()).slice(0, 5)
+  return { total, contributors, contactable, withPhotos, withRepository, highQuality, averageQuality, periods, activity }
+}
+
+function dedupeRawFinds(rawData: RawSharedFind[] | null | undefined) {
+  const sorted = [...(rawData || [])].sort((a, b) => {
+    const aTime = new Date(String(a.shared_at || '')).getTime() || 0
+    const bTime = new Date(String(b.shared_at || '')).getTime() || 0
+    return bTime - aTime
+  })
+  const unique = new Map<string, RawSharedFind>()
+  sorted.forEach((row) => {
+    const key = String(row.fossilmap_id || row.hrid || row.id || '')
+    if (key && !unique.has(key)) unique.set(key, row)
+  })
+  return Array.from(unique.values())
+}
+
+function mapRawFind(row: RawSharedFind): SharedFind | null {
+  const latitude = numberValue(row.latitude)
+  const longitude = numberValue(row.longitude)
+  const taxon = normalise(row.taxon)
+  const collectorName = normalise(row.collector_name) || normalise(row.collectorName) || 'Unknown collector'
+  const id = normalise(row.hrid) || normalise(row.fossilmap_id) || normalise(row.id)
+  if (!id || !taxon || latitude == null || longitude == null) return null
+
+  const measurements = row.measurements && typeof row.measurements === 'object'
+    ? row.measurements as SharedFind['measurements']
+    : {
+      length: numberValue(row.length_mm) ?? undefined,
+      width: numberValue(row.width_mm) ?? undefined,
+      thickness: numberValue(row.thickness_mm) ?? undefined,
+      weight: numberValue(row.weight_g) ?? undefined,
+    }
+
+  return {
+    id,
+    collectorName,
+    collectorEmail: normalise(row.collector_email) || undefined,
+    taxon,
+    element: normalise(row.element) || undefined,
+    period: normalise(row.period) || 'Unknown',
+    stage: normalise(row.stage) || undefined,
+    locationName: normalise(row.location_name) || 'Unknown locality',
+    latitude,
+    longitude,
+    dateCollected: normalise(row.date_collected) || normalise(row.observed_at) || '',
+    photos: Array.isArray(row.photos) ? row.photos.filter((item): item is string => typeof item === 'string') : [],
+    measurements,
+    repository: normalise(row.repository) || 'Private',
+    accession_id: normalise(row.accession_id) || undefined,
+    quality_score: numberValue(row.quality_score) ?? undefined,
+    formation: normalise(row.formation) || undefined,
+    member: normalise(row.member) || undefined,
+    bed: normalise(row.bed) || undefined,
+    notes: normalise(row.notes) || undefined,
+    sharedAt: normalise(row.shared_at) || new Date().toISOString(),
+    isPublic: true,
+  }
+}
+
+function getQuality(find: SharedFind) {
+  if (typeof find.quality_score === 'number') return clamp(Math.round(find.quality_score), 0, 100)
+  const checks = [
+    !!find.taxon,
+    !!find.locationName,
+    Number.isFinite(find.latitude) && Number.isFinite(find.longitude),
+    !!find.period,
+    !!find.stage || !!find.formation,
+    !!find.element,
+    measurementEntries(find).length > 0,
+    (find.photos?.length || 0) > 0,
+    !!find.repository,
+    !!find.collectorEmail,
+  ]
+  return Math.round((checks.filter(Boolean).length / checks.length) * 100)
+}
+
+function measurementEntries(find: SharedFind) {
+  const entries = Object.entries(find.measurements || {})
+    .filter(([, value]) => value != null)
+    .map(([key, value]) => [key.replace(/([A-Z])/g, ' $1'), String(value)] as [string, string])
+  return entries
+}
+
+function toBibTeX(find: SharedFind) {
+  const date = find.sharedAt ? new Date(find.sharedAt) : new Date()
+  const year = Number.isFinite(date.getTime()) ? date.getFullYear() : new Date().getFullYear()
+  const month = Number.isFinite(date.getTime()) ? date.toLocaleString('en-GB', { month: 'long' }) : ''
+  const strat = [find.period, find.stage, find.formation, find.member, find.bed].filter(Boolean).join('; ')
+  const dims = measurementEntries(find).map(([key, value]) => `${key}: ${value}`).join(', ')
+
+  return `@misc{${find.id.replace(/[^a-zA-Z0-9_]/g, '_')},
+  author = {${bibEscape(find.collectorName)}},
+  title = {FossilMapped record: {${bibEscape(find.taxon)}}},
+  howpublished = {\\url{https://Fenlanddavid.github.io/fossilmapped/}},
+  year = {${year}},
+  month = {${month}},
+  note = {FossilMapped ID: ${bibEscape(find.id)}. Stratigraphy: ${bibEscape(strat || 'Unknown')}. Provenance: ${bibEscape(find.locationName)} (${find.latitude.toFixed(4)}, ${find.longitude.toFixed(4)}). Repository: ${bibEscape(find.repository || 'Private')}.${dims ? ` Measurements: ${bibEscape(dims)}.` : ''}${find.notes ? ` Notes: ${bibEscape(find.notes)}.` : ''}}
+}`
+}
+
+function normalise(value: unknown) {
+  return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : ''
+}
+
+function numberValue(value: unknown) {
+  const next = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN
+  return Number.isFinite(next) ? next : null
+}
+
+function percent(value: number, total: number) {
+  return total > 0 ? Math.round((value / total) * 100) : 0
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value))
+}
+
+function formatDate(value: string) {
+  const date = new Date(value)
+  if (!Number.isFinite(date.getTime())) return 'Unknown'
+  return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
+function bibEscape(value: string) {
+  return value.replace(/[{}]/g, '')
 }
 
 export default App

@@ -7,12 +7,12 @@
   "theme_color": "#f59e0b",
   "icons": [
     {
-      "src": "/fossilmapped/vite.svg",
+      "src": "/fossilmapped/fossilmapped.svg",
       "sizes": "192x192",
       "type": "image/svg+xml"
     },
     {
-      "src": "/fossilmapped/vite.svg",
+      "src": "/fossilmapped/fossilmapped.svg",
       "sizes": "512x512",
       "type": "image/svg+xml"
     }
