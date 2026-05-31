@@ -205,7 +205,7 @@ function App() {
 
     map.current = new maplibregl.Map({
       container: mapContainer.current,
-      style: 'https://tiles.basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+      style: 'https://tiles.openfreemap.org/styles/dark',
       center: [-2.0, 54.0],
       zoom: 5.5,
       clickTolerance: 40,
@@ -340,6 +340,15 @@ function App() {
                 onChange={(event) => setSearchQuery(event.target.value)}
               />
             </div>
+
+            <a
+              href="https://fenlanddavid.github.io/fossilmap/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hidden h-9 items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 text-[10px] font-black uppercase tracking-wide text-white/60 transition-colors hover:bg-white/10 hover:text-white sm:inline-flex"
+            >
+              Record with FossilMap →
+            </a>
 
             <DataStatusPill status={sourceStatus} />
 
