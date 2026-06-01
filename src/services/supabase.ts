@@ -20,6 +20,7 @@ export async function getSharedFinds() {
     const { data, error } = await supabase
       .from('shared_finds')
       .select('*')
+      .not('is_deleted', 'eq', true)
       .order('shared_at', { ascending: false })
       .abortSignal(controller.signal)
     

@@ -2,10 +2,12 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   Archive,
+  Award,
   BarChart3,
   Calendar,
   CheckCircle2,
   ChevronRight,
+  Copy,
   Database,
   Download,
   Eye,
@@ -16,6 +18,7 @@ import {
   Image,
   Info,
   Layers,
+  Link,
   List,
   Mail,
   Map as MapIcon,
@@ -23,6 +26,7 @@ import {
   RefreshCw,
   Ruler,
   Search,
+  ShieldCheck,
   User,
   X,
 } from 'lucide-react'
@@ -103,7 +107,9 @@ function App() {
   const [withPhotosOnly, setWithPhotosOnly] = useState(false)
   const [highQualityOnly, setHighQualityOnly] = useState(false)
   const [mapHudDismissed, setMapHudDismissed] = useState(false)
+  const [verificationFilter, setVerificationFilter] = useState<'All' | 'community' | 'verified' | 'research_grade'>('All')
   const [notice, setNotice] = useState<string | null>(null)
+  const [autoOpenId, setAutoOpenId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('find'))
   const mapContainer = useRef<HTMLDivElement>(null)
   const map = useRef<maplibregl.Map | null>(null)
 
@@ -117,6 +123,11 @@ function App() {
         setFinds(data)
         setSourceStatus(data.length > 0 ? 'live' : 'empty')
         setSourceMessage(data.length > 0 ? 'Live shared registry' : 'The shared registry is reachable but has no public records yet.')
+        if (autoOpenId) {
+          const target = data.find((f) => f.id === autoOpenId)
+          if (target) setSelectedFind(target)
+          setAutoOpenId(null)
+        }
       } catch (error) {
         console.error('Failed to fetch finds:', error)
         setFinds(MOCK_FINDS)
@@ -136,6 +147,7 @@ function App() {
       if (contactableOnly && !find.collectorEmail) return false
       if (withPhotosOnly && (!find.photos || find.photos.length === 0)) return false
       if (highQualityOnly && getQuality(find) < 70) return false
+      if (verificationFilter !== 'All' && (find.verification_status || 'community') !== verificationFilter) return false
       if (!q) return true
       return [
         find.id,
@@ -161,7 +173,7 @@ function App() {
 
   const analytics = useMemo(() => buildAnalytics(finds), [finds])
   const filteredAnalytics = useMemo(() => buildAnalytics(filteredFinds), [filteredFinds])
-  const activeFilterCount = [selectedPeriod !== 'All', contactableOnly, withPhotosOnly, highQualityOnly].filter(Boolean).length
+  const activeFilterCount = [selectedPeriod !== 'All', contactableOnly, withPhotosOnly, highQualityOnly, verificationFilter !== 'All'].filter(Boolean).length
 
   function clearFilters() {
     setSearchQuery('')
@@ -169,6 +181,7 @@ function App() {
     setContactableOnly(false)
     setWithPhotosOnly(false)
     setHighQualityOnly(false)
+    setVerificationFilter('All')
   }
 
   function requestAccess(find: SharedFind) {
@@ -425,6 +438,8 @@ function App() {
             setWithPhotosOnly={setWithPhotosOnly}
             highQualityOnly={highQualityOnly}
             setHighQualityOnly={setHighQualityOnly}
+            verificationFilter={verificationFilter}
+            setVerificationFilter={setVerificationFilter}
             clearFilters={clearFilters}
           />
         )}
@@ -544,10 +559,19 @@ function FilterPanel(props: {
   setWithPhotosOnly: (value: boolean) => void
   highQualityOnly: boolean
   setHighQualityOnly: (value: boolean) => void
+  verificationFilter: string
+  setVerificationFilter: (value: any) => void
   clearFilters: () => void
 }) {
+  const verificationOptions: Array<{ id: string; label: string }> = [
+    { id: 'All', label: 'All records' },
+    { id: 'research_grade', label: 'Research Grade' },
+    { id: 'verified', label: 'Verified' },
+    { id: 'community', label: 'Community' },
+  ]
+
   return (
-    <div className="grid gap-3 px-3 py-3 sm:px-4 lg:grid-cols-[1fr_auto] lg:items-center">
+    <div className="grid gap-3 px-3 py-3 sm:px-4">
       <div className="flex min-w-0 items-center gap-2 overflow-x-auto scrollbar-hide">
         <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-white/35">Period</span>
         {props.periods.map((period) => (
@@ -563,12 +587,31 @@ function FilterPanel(props: {
         ))}
       </div>
 
+      <div className="flex min-w-0 flex-wrap gap-2">
+        <span className="shrink-0 self-center text-[10px] font-black uppercase tracking-widest text-white/35">Status</span>
+        {verificationOptions.map((opt) => (
+          <button
+            key={opt.id}
+            onClick={() => props.setVerificationFilter(opt.id)}
+            className={`shrink-0 rounded-lg border px-3 py-1.5 text-[10px] font-black uppercase transition-colors ${
+              props.verificationFilter === opt.id
+                ? opt.id === 'research_grade' ? 'border-emerald-400/70 bg-emerald-400/15 text-emerald-300'
+                  : opt.id === 'verified' ? 'border-sky-400/70 bg-sky-400/15 text-sky-300'
+                  : 'border-accent bg-accent text-black'
+                : 'border-white/10 bg-white/5 text-white/60 hover:text-white'
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
       <div className="flex min-w-0 gap-2 overflow-x-auto scrollbar-hide">
         <ToggleChip label="Contactable" active={props.contactableOnly} setActive={props.setContactableOnly} />
         <ToggleChip label="With photos" active={props.withPhotosOnly} setActive={props.setWithPhotosOnly} />
         <ToggleChip label="Quality 70+" active={props.highQualityOnly} setActive={props.setHighQualityOnly} />
         <button onClick={props.clearFilters} className="shrink-0 rounded-lg border border-white/10 px-3 py-1.5 text-[10px] font-black uppercase text-white/50 hover:text-white">
-          Reset
+          Reset all
         </button>
       </div>
     </div>
@@ -693,7 +736,10 @@ function DatabaseView({ finds, allCount, setSelectedFind, clearFilters }: {
                     <h3 className="mt-2 text-lg font-black italic leading-tight">{find.taxon}</h3>
                     <p className="mt-1 text-sm text-white/45">{find.element || 'Specimen'}</p>
                   </div>
-                  <QualityBadge value={getQuality(find)} />
+                  <div className="flex shrink-0 flex-col items-end gap-1.5">
+                    <QualityBadge value={getQuality(find)} />
+                    <VerificationBadge status={find.verification_status} />
+                  </div>
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-2 text-[11px]">
                   <MiniLabel label="Stratigraphy" value={[find.period, find.stage || find.formation].filter(Boolean).join(' / ') || 'Unknown'} />
@@ -736,7 +782,10 @@ function DatabaseView({ finds, allCount, setSelectedFind, clearFilters }: {
                   {find.collectorEmail && <div className="mt-1 text-[9px] font-black uppercase text-emerald-300/70">Contactable</div>}
                 </td>
                 <td className="px-5 py-4">
-                  <QualityBadge value={getQuality(find)} />
+                  <div className="flex flex-col gap-1.5">
+                    <QualityBadge value={getQuality(find)} />
+                    <VerificationBadge status={find.verification_status} />
+                  </div>
                 </td>
                 <td className="px-5 py-4 text-right">
                   <button className="rounded-lg p-2 transition-all hover:bg-accent/10 hover:text-accent" aria-label={`Open ${find.id}`}>
@@ -781,8 +830,11 @@ function GalleryView({ finds, setSelectedFind, clearFilters }: {
               <span className="rounded bg-black/70 px-2 py-1 text-[8px] font-black uppercase tracking-wider text-accent backdrop-blur">{find.period || 'Unknown'}</span>
               {find.stage && <span className="rounded bg-accent px-2 py-1 text-[8px] font-black uppercase tracking-wider text-black">{find.stage}</span>}
             </div>
-            <div className="absolute right-2 top-2">
+            <div className="absolute right-2 top-2 flex flex-col items-end gap-1">
               <QualityBadge value={getQuality(find)} />
+              {find.verification_status && find.verification_status !== 'community' && (
+                <VerificationBadge status={find.verification_status} />
+              )}
             </div>
           </div>
           <div className="p-4">
@@ -841,8 +893,14 @@ function AnalyticsView({ analytics, filteredAnalytics, filteredFinds, sourceMess
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <MetricCard icon={Database} label="Records" value={analytics.total} detail={`${filteredAnalytics.total} visible`} />
         <MetricCard icon={User} label="Contributors" value={analytics.contributors} detail="Distinct collectors" />
+        <MetricCard icon={ShieldCheck} label="Verified" value={analytics.verified} detail={`${percent(analytics.verified, analytics.total)}% of records`} />
+        <MetricCard icon={Award} label="Research Grade" value={analytics.researchGrade} detail={`${percent(analytics.researchGrade, analytics.total)}% of records`} />
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-3 xl:grid-cols-4">
         <MetricCard icon={Mail} label="Contactable" value={analytics.contactable} detail={`${percent(analytics.contactable, analytics.total)}% of records`} />
         <MetricCard icon={Eye} label="Avg quality" value={`${analytics.averageQuality}%`} detail="Completeness score" />
+        <MetricCard icon={Image} label="With photos" value={analytics.withPhotos} detail={`${percent(analytics.withPhotos, analytics.total)}% of records`} />
+        <MetricCard icon={Archive} label="In repository" value={analytics.withRepository} detail={`${percent(analytics.withRepository, analytics.total)}% declared`} />
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
@@ -936,6 +994,11 @@ function FindDetailModal({ find, close, downloadBibTeX, requestAccess }: {
   downloadBibTeX: (find: SharedFind) => void
   requestAccess: (find: SharedFind) => void
 }) {
+  function copyPermalink() {
+    const url = `${window.location.origin}${window.location.pathname}?find=${encodeURIComponent(find.id)}`
+    navigator.clipboard.writeText(url).catch(() => {})
+  }
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-8">
       <button className="absolute inset-0 bg-black/88 backdrop-blur-sm" onClick={close} aria-label="Close detail" />
@@ -969,16 +1032,29 @@ function FindDetailModal({ find, close, downloadBibTeX, requestAccess }: {
         <div className="min-h-0 w-full overflow-y-auto p-5 custom-scrollbar sm:p-7 md:w-[54%]">
           <div className="mb-6 flex items-start justify-between gap-4">
             <div className="min-w-0">
-              <div className="mb-2 flex items-center gap-2 text-accent">
-                <Hash className="h-4 w-4" />
-                <span className="truncate text-xs font-bold tracking-tight">{find.id}</span>
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1.5 text-accent">
+                  <Hash className="h-4 w-4 shrink-0" />
+                  <span className="truncate text-xs font-bold tracking-tight">{find.id}</span>
+                </div>
+                <VerificationBadge status={find.verification_status} />
               </div>
               <h2 className="text-2xl font-black leading-tight italic sm:text-3xl">{find.taxon}</h2>
               <p className="mt-1 text-sm font-medium text-white/60">{find.element || 'Specimen'}</p>
             </div>
-            <button onClick={close} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-white/10 bg-white/5 transition-colors hover:bg-white/10" aria-label="Close detail">
-              <X className="h-4 w-4" />
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                onClick={copyPermalink}
+                title="Copy permalink"
+                className="grid h-9 w-9 place-items-center rounded-lg border border-white/10 bg-white/5 text-white/55 transition-colors hover:bg-white/10 hover:text-white"
+                aria-label="Copy permalink"
+              >
+                <Link className="h-4 w-4" />
+              </button>
+              <button onClick={close} className="grid h-9 w-9 place-items-center rounded-lg border border-white/10 bg-white/5 transition-colors hover:bg-white/10" aria-label="Close detail">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -1014,10 +1090,17 @@ function FindDetailModal({ find, close, downloadBibTeX, requestAccess }: {
             </div>
           )}
 
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <div className="mt-6 grid gap-3 sm:grid-cols-3">
             <button onClick={() => downloadBibTeX(find)} className="inline-flex items-center justify-center gap-2 rounded-lg bg-accent px-4 py-3 text-xs font-black uppercase tracking-wider text-black transition-transform active:scale-[0.98]">
               <Download className="h-4 w-4" />
-              Citation
+              BibTeX
+            </button>
+            <button
+              onClick={copyPermalink}
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-accent/30 bg-accent/10 px-4 py-3 text-xs font-bold text-accent/90 transition-colors hover:bg-accent/15"
+            >
+              <Copy className="h-4 w-4" />
+              Copy link
             </button>
             <button
               onClick={() => requestAccess(find)}
@@ -1105,8 +1188,44 @@ function ActivityItem({ find, compact }: { find: SharedFind; compact?: boolean }
 }
 
 function QualityBadge({ value }: { value: number }) {
-  const tone = value >= 70 ? 'border-emerald-400/25 bg-emerald-400/10 text-emerald-200' : value >= 40 ? 'border-amber-400/25 bg-amber-400/10 text-amber-200' : 'border-white/10 bg-white/5 text-white/45'
-  return <span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-black uppercase ${tone}`}>{value}%</span>
+  const tier = getQualityTier(value)
+  const tone = tier === 'research_grade'
+    ? 'border-emerald-400/25 bg-emerald-400/10 text-emerald-200'
+    : tier === 'community'
+    ? 'border-amber-400/25 bg-amber-400/10 text-amber-200'
+    : 'border-white/10 bg-white/5 text-white/45'
+  const label = tier === 'research_grade' ? 'Research Grade' : tier === 'community' ? 'Community' : 'Basic'
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[9px] font-black uppercase ${tone}`}>
+      <span>{value}%</span>
+      <span className="opacity-60">·</span>
+      <span>{label}</span>
+    </span>
+  )
+}
+
+function VerificationBadge({ status }: { status: SharedFind['verification_status'] }) {
+  if (status === 'research_grade') {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-[9px] font-black uppercase tracking-wide text-emerald-300">
+        <Award className="h-3 w-3" />
+        Research Grade
+      </span>
+    )
+  }
+  if (status === 'verified') {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-sky-400/30 bg-sky-400/10 px-2.5 py-1 text-[9px] font-black uppercase tracking-wide text-sky-300">
+        <ShieldCheck className="h-3 w-3" />
+        Verified
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[9px] font-black uppercase tracking-wide text-white/40">
+      Community Record
+    </span>
+  )
 }
 
 function EmptyState({ title, detail, action, onAction }: { title: string; detail: string; action: string; onAction: () => void }) {
@@ -1134,6 +1253,8 @@ function buildAnalytics(finds: SharedFind[]) {
   const withRepository = finds.filter((find) => !!find.repository && find.repository.toLowerCase() !== 'private').length
   const highQuality = finds.filter((find) => getQuality(find) >= 70).length
   const averageQuality = total ? Math.round(finds.reduce((sum, find) => sum + getQuality(find), 0) / total) : 0
+  const researchGrade = finds.filter((find) => find.verification_status === 'research_grade').length
+  const verified = finds.filter((find) => find.verification_status === 'verified' || find.verification_status === 'research_grade').length
   const periodCounts = finds.reduce<Record<string, number>>((acc, find) => {
     const label = normalise(find.period) || 'Unknown'
     acc[label] = (acc[label] || 0) + 1
@@ -1143,7 +1264,7 @@ function buildAnalytics(finds: SharedFind[]) {
     .map(([label, count]) => ({ label, count, percent: percent(count, total) }))
     .sort((a, b) => b.count - a.count)
   const activity = [...finds].sort((a, b) => new Date(b.sharedAt).getTime() - new Date(a.sharedAt).getTime()).slice(0, 5)
-  return { total, contributors, contactable, withPhotos, withRepository, highQuality, averageQuality, periods, activity }
+  return { total, contributors, contactable, withPhotos, withRepository, highQuality, averageQuality, researchGrade, verified, periods, activity }
 }
 
 function dedupeRawFinds(rawData: RawSharedFind[] | null | undefined) {
@@ -1161,6 +1282,7 @@ function dedupeRawFinds(rawData: RawSharedFind[] | null | undefined) {
 }
 
 function mapRawFind(row: RawSharedFind): SharedFind | null {
+  if (row.is_deleted === true) return null
   const latitude = numberValue(row.latitude)
   const longitude = numberValue(row.longitude)
   const taxon = normalise(row.taxon)
@@ -1200,6 +1322,9 @@ function mapRawFind(row: RawSharedFind): SharedFind | null {
     notes: normalise(row.notes) || undefined,
     sharedAt: normalise(row.shared_at) || new Date().toISOString(),
     isPublic: true,
+    verification_status: (['community', 'verified', 'research_grade'].includes(String(row.verification_status))
+      ? row.verification_status as SharedFind['verification_status']
+      : 'community'),
   }
 }
 
@@ -1210,14 +1335,24 @@ function getQuality(find: SharedFind) {
     !!find.locationName,
     Number.isFinite(find.latitude) && Number.isFinite(find.longitude),
     !!find.period,
-    !!find.stage || !!find.formation,
+    !!find.formation,
+    !!find.stage,
+    !!find.member,
     !!find.element,
     measurementEntries(find).length > 0,
     (find.photos?.length || 0) > 0,
-    !!find.repository,
+    (find.photos?.length || 0) >= 2,
+    !!find.repository && find.repository.toLowerCase() !== 'private',
+    !!find.accession_id,
     !!find.collectorEmail,
   ]
   return Math.round((checks.filter(Boolean).length / checks.length) * 100)
+}
+
+function getQualityTier(score: number): 'research_grade' | 'community' | 'basic' {
+  if (score >= 80) return 'research_grade'
+  if (score >= 50) return 'community'
+  return 'basic'
 }
 
 function measurementEntries(find: SharedFind) {

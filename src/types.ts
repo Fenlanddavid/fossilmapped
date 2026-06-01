@@ -26,4 +26,5 @@ export interface SharedFind {
   notes?: string;
   isPublic: boolean;
   sharedAt: string;
+  verification_status?: 'community' | 'verified' | 'research_grade';
 }
