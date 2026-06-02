@@ -171,7 +171,7 @@ function App() {
         find.accession_id,
       ].some((value) => normalise(value).toLowerCase().includes(q))
     })
-  }, [contactableOnly, finds, highQualityOnly, searchQuery, selectedPeriod, withPhotosOnly])
+  }, [contactableOnly, finds, highQualityOnly, searchQuery, selectedPeriod, verificationFilter, withPhotosOnly])
 
   const periods = useMemo(() => {
     const values = Array.from(new Set(finds.map((find) => normalise(find.period)).filter(Boolean)))
