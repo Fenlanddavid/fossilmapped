@@ -201,10 +201,14 @@ function App() {
   }
 
   async function promoteFind(find: SharedFind, status: 'community' | 'verified' | 'research_grade') {
-    await promoteVerification(find.id, status)
-    const updated: SharedFind = { ...find, verification_status: status }
-    setFinds(prev => prev.map(f => f.id === find.id ? updated : f))
-    setSelectedFind(updated)
+    try {
+      await promoteVerification(find.id, status)
+      const updated: SharedFind = { ...find, verification_status: status }
+      setFinds(prev => prev.map(f => f.id === find.id ? updated : f))
+      setSelectedFind(updated)
+    } catch (e: any) {
+      setNotice(`Promote failed: ${e?.message ?? 'Unknown error'}`)
+    }
   }
 
   function handleAdminLogin(e: React.FormEvent) {
