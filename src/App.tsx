@@ -258,13 +258,47 @@ function App() {
     map.current.on('load', () => {
       map.current?.addSource('finds', {
         type: 'geojson',
+        cluster: true,
+        clusterMaxZoom: 12,
+        clusterRadius: 50,
         data: { type: 'FeatureCollection', features: [] },
       })
 
+      // Cluster circle
+      map.current?.addLayer({
+        id: 'finds-cluster',
+        type: 'circle',
+        source: 'finds',
+        filter: ['has', 'point_count'],
+        paint: {
+          'circle-color': '#f59e0b',
+          'circle-radius': ['step', ['get', 'point_count'], 18, 10, 24, 50, 30],
+          'circle-opacity': 0.82,
+          'circle-stroke-width': 2,
+          'circle-stroke-color': '#ffffff',
+        },
+      })
+
+      // Cluster count label
+      map.current?.addLayer({
+        id: 'finds-cluster-count',
+        type: 'symbol',
+        source: 'finds',
+        filter: ['has', 'point_count'],
+        layout: {
+          'text-field': '{point_count_abbreviated}',
+          'text-size': 11,
+          'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+        },
+        paint: { 'text-color': '#000000' },
+      })
+
+      // Individual pins
       map.current?.addLayer({
         id: 'finds-layer',
         type: 'circle',
         source: 'finds',
+        filter: ['!', ['has', 'point_count']],
         paint: {
           'circle-color': ['match', ['get', 'verification_status'], 'research_grade', '#3b82f6', 'verified', '#22c55e', '#f59e0b'],
           'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 8, 10, 12, 15, 18],
@@ -272,6 +306,25 @@ function App() {
           'circle-stroke-color': '#ffffff',
           'circle-opacity': 0.86,
         },
+      })
+
+      // Cluster click — zoom to bounds
+      map.current?.on('click', 'finds-cluster', (e) => {
+        const features = map.current!.queryRenderedFeatures(e.point, { layers: ['finds-cluster'] })
+        const clusterId = features[0]?.properties?.cluster_id
+        if (!clusterId) return
+        const source = map.current!.getSource('finds') as maplibregl.GeoJSONSource
+        source.getClusterExpansionZoom(clusterId).then((zoom) => {
+          const coords = (features[0].geometry as GeoJSON.Point).coordinates as [number, number]
+          map.current!.easeTo({ center: coords, zoom })
+        }).catch(() => {})
+      })
+
+      map.current?.on('mouseenter', 'finds-cluster', () => {
+        map.current!.getCanvas().style.cursor = 'pointer'
+      })
+      map.current?.on('mouseleave', 'finds-cluster', () => {
+        map.current!.getCanvas().style.cursor = ''
       })
 
       map.current?.on('mouseenter', 'finds-layer', () => {
