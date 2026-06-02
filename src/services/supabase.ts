@@ -36,11 +36,11 @@ export async function getSharedFinds() {
   }
 }
 
-export async function promoteVerification(id: string, status: 'community' | 'verified' | 'research_grade') {
+export async function promoteVerification(hrid: string, status: 'community' | 'verified' | 'research_grade') {
   const { error } = await supabase
     .from('shared_finds')
     .update({ verification_status: status })
-    .eq('id', id)
+    .eq('hrid', hrid)
   if (error) throw error
 }
 
