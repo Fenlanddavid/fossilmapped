@@ -266,7 +266,7 @@ function App() {
         type: 'circle',
         source: 'finds',
         paint: {
-          'circle-color': '#f59e0b',
+          'circle-color': ['match', ['get', 'verification_status'], 'research_grade', '#3b82f6', 'verified', '#22c55e', '#f59e0b'],
           'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 8, 10, 12, 15, 18],
           'circle-stroke-width': 2,
           'circle-stroke-color': '#ffffff',
@@ -302,7 +302,7 @@ function App() {
         features: filteredFinds.map((find) => ({
           type: 'Feature',
           geometry: { type: 'Point', coordinates: [find.longitude, find.latitude] },
-          properties: { id: find.id },
+          properties: { id: find.id, verification_status: find.verification_status ?? 'community' },
         })),
       })
     }
