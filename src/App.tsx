@@ -20,6 +20,7 @@ import {
   Layers,
   Link,
   List,
+  Lock,
   Mail,
   Map as MapIcon,
   MapPin,
@@ -33,8 +34,10 @@ import {
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { SharedFind } from './types'
-import { getSharedFinds } from './services/supabase'
+import { getSharedFinds, promoteVerification } from './services/supabase'
 import { exportToCSV, exportToJSON } from './services/export'
+
+const ADMIN_PIN = import.meta.env.VITE_ADMIN_PIN as string | undefined
 
 type ActiveTab = 'map' | 'database' | 'gallery' | 'stats'
 type SourceStatus = 'loading' | 'live' | 'demo' | 'empty'
@@ -110,6 +113,10 @@ function App() {
   const [verificationFilter, setVerificationFilter] = useState<'All' | 'community' | 'verified' | 'research_grade'>('All')
   const [notice, setNotice] = useState<string | null>(null)
   const [autoOpenId, setAutoOpenId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('find'))
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [showAdminLogin, setShowAdminLogin] = useState(false)
+  const [adminPinInput, setAdminPinInput] = useState('')
+  const [adminPinError, setAdminPinError] = useState(false)
   const mapContainer = useRef<HTMLDivElement>(null)
   const map = useRef<maplibregl.Map | null>(null)
 
@@ -191,6 +198,26 @@ function App() {
       `Hello ${find.collectorName},\n\nI saw your find of ${find.taxon} on FossilMapped and would like to request more information or access for research purposes.\n\nRecord: ${find.id}\nLocation: ${find.locationName}`
     )
     window.location.href = `mailto:${find.collectorEmail}?subject=${subject}&body=${body}`
+  }
+
+  async function promoteFind(find: SharedFind, status: 'community' | 'verified' | 'research_grade') {
+    await promoteVerification(find.id, status)
+    const updated: SharedFind = { ...find, verification_status: status }
+    setFinds(prev => prev.map(f => f.id === find.id ? updated : f))
+    setSelectedFind(updated)
+  }
+
+  function handleAdminLogin(e: React.FormEvent) {
+    e.preventDefault()
+    if (adminPinInput === ADMIN_PIN) {
+      setIsAdmin(true)
+      setShowAdminLogin(false)
+      setAdminPinInput('')
+      setAdminPinError(false)
+    } else {
+      setAdminPinError(true)
+      setAdminPinInput('')
+    }
   }
 
   function downloadBibTeX(find: SharedFind) {
@@ -387,6 +414,20 @@ function App() {
               <Filter className="h-4 w-4" />
               {activeFilterCount > 0 && <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[9px] font-black text-black">{activeFilterCount}</span>}
             </button>
+            {ADMIN_PIN && (
+              <button
+                onClick={() => isAdmin ? setIsAdmin(false) : setShowAdminLogin(true)}
+                className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg border transition-colors ${
+                  isAdmin
+                    ? 'border-amber-500/40 bg-amber-500/15 text-amber-400'
+                    : 'border-white/10 bg-white/5 text-white/30 hover:bg-white/10 hover:text-white/60'
+                }`}
+                title={isAdmin ? 'Admin mode active — click to lock' : 'Admin login'}
+                aria-label={isAdmin ? 'Lock admin mode' : 'Admin login'}
+              >
+                {isAdmin ? <ShieldCheck className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -507,7 +548,33 @@ function App() {
           close={() => setSelectedFind(null)}
           downloadBibTeX={downloadBibTeX}
           requestAccess={requestAccess}
+          isAdmin={isAdmin}
+          onPromote={promoteFind}
         />
+      )}
+
+      {showAdminLogin && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+          <button className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => { setShowAdminLogin(false); setAdminPinInput(''); setAdminPinError(false); }} aria-label="Close" />
+          <form onSubmit={handleAdminLogin} className="relative w-full max-w-xs rounded-xl border border-amber-500/25 bg-[#0d1117] p-6 shadow-2xl">
+            <div className="mb-4 flex items-center gap-2">
+              <Lock className="h-4 w-4 text-amber-400" />
+              <span className="text-sm font-black uppercase tracking-widest text-amber-400">Admin login</span>
+            </div>
+            <input
+              type="password"
+              placeholder="Enter PIN"
+              autoFocus
+              value={adminPinInput}
+              onChange={e => { setAdminPinInput(e.target.value); setAdminPinError(false); }}
+              className={`mb-3 h-10 w-full rounded-lg border bg-black/40 px-3 text-sm outline-none transition-colors focus:border-amber-500/60 ${adminPinError ? 'border-red-500/60 text-red-400' : 'border-white/15 text-white'}`}
+            />
+            {adminPinError && <p className="mb-3 text-[10px] font-bold text-red-400">Incorrect PIN</p>}
+            <button type="submit" className="h-10 w-full rounded-lg bg-amber-500 text-xs font-black uppercase tracking-wider text-black transition-opacity hover:opacity-90">
+              Unlock
+            </button>
+          </form>
+        </div>
       )}
     </div>
   )
@@ -988,11 +1055,13 @@ function ResearchSidebar({ analytics, activity, sourceStatus }: { analytics: Ana
   )
 }
 
-function FindDetailModal({ find, close, downloadBibTeX, requestAccess }: {
+function FindDetailModal({ find, close, downloadBibTeX, requestAccess, isAdmin, onPromote }: {
   find: SharedFind
   close: () => void
   downloadBibTeX: (find: SharedFind) => void
   requestAccess: (find: SharedFind) => void
+  isAdmin: boolean
+  onPromote: (find: SharedFind, status: 'community' | 'verified' | 'research_grade') => Promise<void>
 }) {
   function copyPermalink() {
     const url = `${window.location.origin}${window.location.pathname}?find=${encodeURIComponent(find.id)}`
@@ -1111,6 +1180,34 @@ function FindDetailModal({ find, close, downloadBibTeX, requestAccess }: {
               Request access
             </button>
           </div>
+
+          {isAdmin && (
+            <div className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/5 p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <ShieldCheck className="h-3 w-3 text-amber-400/70" />
+                <span className="text-[9px] font-black uppercase tracking-widest text-amber-400/70">Admin — Verification</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {(['community', 'verified', 'research_grade'] as const).map((status) => {
+                  const current = find.verification_status === status || (!find.verification_status && status === 'community')
+                  return (
+                    <button
+                      key={status}
+                      onClick={() => onPromote(find, status)}
+                      disabled={current}
+                      className={`rounded-lg border px-2 py-2 text-[10px] font-black uppercase tracking-wide transition-colors disabled:cursor-default ${
+                        current
+                          ? 'border-amber-400/40 bg-amber-500/20 text-amber-300'
+                          : 'border-white/10 bg-white/5 text-white/50 hover:bg-white/10 hover:text-white'
+                      }`}
+                    >
+                      {status === 'research_grade' ? 'Research' : status.charAt(0).toUpperCase() + status.slice(1)}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
