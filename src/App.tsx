@@ -113,12 +113,21 @@ function App() {
   const [verificationFilter, setVerificationFilter] = useState<'All' | 'community' | 'verified' | 'research_grade'>('All')
   const [notice, setNotice] = useState<string | null>(null)
   const [autoOpenId, setAutoOpenId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('find'))
+  const [showAbout, setShowAbout] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
   const [showAdminLogin, setShowAdminLogin] = useState(false)
   const [adminPinInput, setAdminPinInput] = useState('')
   const [adminPinError, setAdminPinError] = useState(false)
   const mapContainer = useRef<HTMLDivElement>(null)
   const map = useRef<maplibregl.Map | null>(null)
+
+  useEffect(() => {
+    if (selectedFind) {
+      window.history.pushState({}, '', `?find=${encodeURIComponent(selectedFind.id)}`)
+    } else {
+      window.history.pushState({}, '', window.location.pathname)
+    }
+  }, [selectedFind])
 
   useEffect(() => {
     async function loadData() {
@@ -450,6 +459,15 @@ function App() {
             <DataStatusPill status={sourceStatus} />
 
             <button
+              onClick={() => setShowAbout(true)}
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-white/10 bg-white/5 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+              title="About this dataset"
+              aria-label="About this dataset"
+            >
+              <Info className="h-4 w-4" />
+            </button>
+
+            <button
               onClick={() => window.location.reload()}
               className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-white/10 bg-white/5 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
               title="Refresh registry"
@@ -609,6 +627,8 @@ function App() {
           onPromote={promoteFind}
         />
       )}
+
+      {showAbout && <AboutModal close={() => setShowAbout(false)} />}
 
       {showAdminLogin && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
@@ -824,22 +844,60 @@ function DatabaseView({ finds, allCount, setSelectedFind, clearFilters }: {
   setSelectedFind: (find: SharedFind) => void
   clearFilters: () => void
 }) {
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+
+  const allSelected = finds.length > 0 && finds.every((f) => selectedIds.has(f.id))
+  const someSelected = !allSelected && finds.some((f) => selectedIds.has(f.id))
+
+  function toggleAll(checked: boolean) {
+    setSelectedIds(checked ? new Set(finds.map((f) => f.id)) : new Set())
+  }
+
+  function toggleOne(id: string) {
+    const next = new Set(selectedIds)
+    next.has(id) ? next.delete(id) : next.add(id)
+    setSelectedIds(next)
+  }
+
+  function exportSelected(format: 'csv' | 'json') {
+    const subset = finds.filter((f) => selectedIds.has(f.id))
+    format === 'csv' ? exportToCSV(subset) : exportToJSON(subset)
+  }
+
+  const exportTarget = selectedIds.size > 0 ? selectedIds.size : finds.length
+  const exportLabel = selectedIds.size > 0 ? `Export ${selectedIds.size} selected` : `Export all ${finds.length}`
+
   return (
     <div className="absolute inset-0 overflow-auto bg-[#07090d]">
       <div className="sticky top-0 z-20 flex flex-col gap-3 border-b border-white/10 bg-[#0d1117]/95 p-4 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-[10px] font-black uppercase tracking-widest text-white/40">Research dataset</p>
-          <h2 className="mt-1 text-lg font-black">{finds.length} visible records</h2>
+          <h2 className="mt-1 text-lg font-black">{finds.length} visible records{selectedIds.size > 0 && <span className="ml-2 text-sm font-bold text-accent">· {selectedIds.size} selected</span>}</h2>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => exportToCSV(finds)} className="inline-flex items-center justify-center gap-2 rounded-lg border border-accent/25 bg-accent/10 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-accent transition-colors hover:bg-accent hover:text-black">
+          <button
+            onClick={() => selectedIds.size > 0 ? exportSelected('csv') : exportToCSV(finds)}
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-accent/25 bg-accent/10 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-accent transition-colors hover:bg-accent hover:text-black"
+          >
             <Download className="h-3.5 w-3.5" />
-            CSV
+            {exportLabel} CSV
           </button>
-          <button onClick={() => exportToJSON(finds)} className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-white/65 transition-colors hover:bg-white/10 hover:text-white">
+          <button
+            onClick={() => selectedIds.size > 0 ? exportSelected('json') : exportToJSON(finds)}
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-white/65 transition-colors hover:bg-white/10 hover:text-white"
+          >
             <Download className="h-3.5 w-3.5" />
             JSON
           </button>
+          {selectedIds.size > 0 && (
+            <button
+              onClick={() => setSelectedIds(new Set())}
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-white/45 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              <X className="h-3.5 w-3.5" />
+              Clear
+            </button>
+          )}
         </div>
       </div>
 
@@ -847,38 +905,63 @@ function DatabaseView({ finds, allCount, setSelectedFind, clearFilters }: {
         <EmptyState title="No matching records" detail={`${allCount} records are available before filters.`} action="Clear filters" onAction={clearFilters} />
       ) : (
         <>
+          {/* Mobile cards */}
           <div className="grid gap-3 p-4 sm:hidden">
-            {finds.map((find) => (
-              <button
-                key={find.id}
-                onClick={() => setSelectedFind(find)}
-                className="rounded-lg border border-white/10 bg-surface p-4 text-left transition-colors hover:border-accent/40"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-[11px] font-mono text-accent">{find.id}</div>
-                    <h3 className="mt-2 text-lg font-black italic leading-tight">{find.taxon}</h3>
-                    <p className="mt-1 text-sm text-white/45">{find.element || 'Specimen'}</p>
-                  </div>
-                  <div className="flex shrink-0 flex-col items-end gap-1.5">
-                    <QualityBadge value={getQuality(find)} />
-                    <VerificationBadge status={find.verification_status} />
+            {finds.map((find) => {
+              const checked = selectedIds.has(find.id)
+              return (
+                <div
+                  key={find.id}
+                  className={`rounded-lg border bg-surface p-4 text-left transition-colors ${checked ? 'border-accent/40 bg-accent/5' : 'border-white/10'}`}
+                >
+                  <div className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleOne(find.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="mt-1 h-4 w-4 shrink-0 accent-[var(--accent)]"
+                    />
+                    <button className="min-w-0 flex-1 text-left" onClick={() => setSelectedFind(find)}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-[11px] font-mono text-accent">{find.id}</div>
+                          <h3 className="mt-2 text-lg font-black italic leading-tight">{find.taxon}</h3>
+                          <p className="mt-1 text-sm text-white/45">{find.element || 'Specimen'}</p>
+                        </div>
+                        <div className="flex shrink-0 flex-col items-end gap-1.5">
+                          <QualityBadge value={getQuality(find)} />
+                          <VerificationBadge status={find.verification_status} />
+                        </div>
+                      </div>
+                      <div className="mt-4 grid grid-cols-2 gap-2 text-[11px]">
+                        <MiniLabel label="Stratigraphy" value={[find.period, find.stage || find.formation].filter(Boolean).join(' / ') || 'Unknown'} />
+                        <MiniLabel label="Location" value={find.locationName} />
+                        <MiniLabel label="Collector" value={find.collectorName} />
+                        <MiniLabel label="Repository" value={find.repository || 'Private'} />
+                      </div>
+                      {find.collectorEmail && <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-emerald-400/10 px-2 py-1 text-[9px] font-black uppercase text-emerald-200"><Mail className="h-3 w-3" /> Contactable</div>}
+                    </button>
                   </div>
                 </div>
-                <div className="mt-4 grid grid-cols-2 gap-2 text-[11px]">
-                  <MiniLabel label="Stratigraphy" value={[find.period, find.stage || find.formation].filter(Boolean).join(' / ') || 'Unknown'} />
-                  <MiniLabel label="Location" value={find.locationName} />
-                  <MiniLabel label="Collector" value={find.collectorName} />
-                  <MiniLabel label="Repository" value={find.repository || 'Private'} />
-                </div>
-                {find.collectorEmail && <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-emerald-400/10 px-2 py-1 text-[9px] font-black uppercase text-emerald-200"><Mail className="h-3 w-3" /> Contactable</div>}
-              </button>
-            ))}
+              )
+            })}
           </div>
 
+          {/* Desktop table */}
           <table className="hidden w-full min-w-[980px] border-collapse text-left sm:table">
           <thead className="sticky top-[89px] z-10 border-b border-white/10 bg-[#0d1117] text-[10px] font-black uppercase tracking-widest text-white/40 sm:top-[73px]">
             <tr>
+              <th className="w-10 px-4 py-4">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  ref={(el) => { if (el) el.indeterminate = someSelected }}
+                  onChange={(e) => toggleAll(e.target.checked)}
+                  className="h-4 w-4 accent-[var(--accent)]"
+                  aria-label="Select all"
+                />
+              </th>
               <th className="px-5 py-4">Ref ID</th>
               <th className="px-5 py-4">Taxon</th>
               <th className="px-5 py-4">Stratigraphy</th>
@@ -889,35 +972,47 @@ function DatabaseView({ finds, allCount, setSelectedFind, clearFilters }: {
             </tr>
           </thead>
           <tbody className="divide-y divide-white/5">
-            {finds.map((find) => (
-              <tr key={find.id} onClick={() => setSelectedFind(find)} className="group cursor-pointer transition-colors hover:bg-white/[0.03]">
-                <td className="px-5 py-4 text-xs font-mono text-accent">{find.id}</td>
-                <td className="px-5 py-4">
-                  <div className="text-sm font-bold italic">{find.taxon}</div>
-                  <div className="text-[10px] text-white/40">{find.element || 'Specimen'}</div>
-                </td>
-                <td className="px-5 py-4 text-xs text-white/60">
-                  <div className="font-bold">{find.period || 'Unknown'}</div>
-                  <div className="text-[10px] font-black uppercase tracking-tight text-accent/80">{find.stage || find.formation || 'No finer stratigraphy'}</div>
-                </td>
-                <td className="px-5 py-4 text-xs text-white/60">{find.locationName}</td>
-                <td className="px-5 py-4 text-xs text-white/60">
-                  <div>{find.collectorName}</div>
-                  {find.collectorEmail && <div className="mt-1 text-[9px] font-black uppercase text-emerald-300/70">Contactable</div>}
-                </td>
-                <td className="px-5 py-4">
-                  <div className="flex flex-col gap-1.5">
-                    <QualityBadge value={getQuality(find)} />
-                    <VerificationBadge status={find.verification_status} />
-                  </div>
-                </td>
-                <td className="px-5 py-4 text-right">
-                  <button className="rounded-lg p-2 transition-all hover:bg-accent/10 hover:text-accent" aria-label={`Open ${find.id}`}>
-                    <ChevronRight className="h-4 w-4" />
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {finds.map((find) => {
+              const checked = selectedIds.has(find.id)
+              return (
+                <tr key={find.id} onClick={() => setSelectedFind(find)} className={`group cursor-pointer transition-colors ${checked ? 'bg-accent/5 hover:bg-accent/8' : 'hover:bg-white/[0.03]'}`}>
+                  <td className="w-10 px-4 py-4" onClick={(e) => { e.stopPropagation(); toggleOne(find.id) }}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleOne(find.id)}
+                      className="h-4 w-4 accent-[var(--accent)]"
+                      aria-label={`Select ${find.id}`}
+                    />
+                  </td>
+                  <td className="px-5 py-4 text-xs font-mono text-accent">{find.id}</td>
+                  <td className="px-5 py-4">
+                    <div className="text-sm font-bold italic">{find.taxon}</div>
+                    <div className="text-[10px] text-white/40">{find.element || 'Specimen'}</div>
+                  </td>
+                  <td className="px-5 py-4 text-xs text-white/60">
+                    <div className="font-bold">{find.period || 'Unknown'}</div>
+                    <div className="text-[10px] font-black uppercase tracking-tight text-accent/80">{find.stage || find.formation || 'No finer stratigraphy'}</div>
+                  </td>
+                  <td className="px-5 py-4 text-xs text-white/60">{find.locationName}</td>
+                  <td className="px-5 py-4 text-xs text-white/60">
+                    <div>{find.collectorName}</div>
+                    {find.collectorEmail && <div className="mt-1 text-[9px] font-black uppercase text-emerald-300/70">Contactable</div>}
+                  </td>
+                  <td className="px-5 py-4">
+                    <div className="flex flex-col gap-1.5">
+                      <QualityBadge value={getQuality(find)} />
+                      <VerificationBadge status={find.verification_status} />
+                    </div>
+                  </td>
+                  <td className="px-5 py-4 text-right">
+                    <button className="rounded-lg p-2 transition-all hover:bg-accent/10 hover:text-accent" aria-label={`Open ${find.id}`}>
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
           </table>
         </>
@@ -1548,6 +1643,152 @@ function percent(value: number, total: number) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
+}
+
+function AboutModal({ close }: { close: () => void }) {
+  const today = new Date().toISOString().slice(0, 10)
+  const bibtex = `@misc{fossilmapped2026,
+  title  = {FossilMapped community fossil occurrence dataset},
+  year   = {2026},
+  url    = {https://fenlanddavid.github.io/fossilmapped/},
+  note   = {Accessed ${today}}
+}`
+  const plainCite = `FossilMapped (2026). Community fossil occurrence dataset. Available at: https://fenlanddavid.github.io/fossilmapped/ Accessed: ${today}.`
+
+  function copyText(text: string) {
+    navigator.clipboard.writeText(text).catch(() => {})
+  }
+
+  return (
+    <div className="fixed inset-0 z-[110] flex items-end justify-center p-0 sm:items-center sm:p-6">
+      <button className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={close} aria-label="Close" />
+      <div className="relative flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl border border-white/10 bg-[#0d1117] shadow-2xl sm:rounded-2xl">
+        {/* Header */}
+        <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-5 py-4">
+          <div className="flex items-center gap-3">
+            <div className="grid h-8 w-8 place-items-center rounded-lg bg-accent/15 text-accent">
+              <Info className="h-4 w-4" />
+            </div>
+            <div>
+              <h2 className="text-sm font-black uppercase tracking-tight">About this dataset</h2>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-white/40">FossilMapped research portal</p>
+            </div>
+          </div>
+          <button onClick={close} className="grid h-8 w-8 place-items-center rounded-lg text-white/40 transition-colors hover:bg-white/10 hover:text-white" aria-label="Close">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="min-h-0 overflow-y-auto">
+          <div className="space-y-6 p-5">
+
+            {/* What is FossilMapped */}
+            <section>
+              <h3 className="mb-2 text-xs font-black uppercase tracking-widest text-accent">What is FossilMapped?</h3>
+              <p className="text-sm leading-relaxed text-white/70">
+                FossilMapped is a community-submitted UK fossil occurrence portal. Records are shared voluntarily
+                by collectors using{' '}
+                <a
+                  href="https://fenlanddavid.github.io/fossilmap/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-accent underline underline-offset-2 hover:text-white"
+                >
+                  FossilMap
+                </a>
+                {' '}— a field recording app that captures GPS coordinates, stratigraphic context, measurements,
+                and photographs at the point of collection. Each public record represents a real find shared
+                with the research community.
+              </p>
+            </section>
+
+            {/* Verification tiers */}
+            <section>
+              <h3 className="mb-3 text-xs font-black uppercase tracking-widest text-accent">How records are verified</h3>
+              <div className="space-y-2">
+                {[
+                  { label: 'Community', colour: 'bg-blue-500/20 text-blue-300 border-blue-500/30', desc: 'Submitted by a collector. GPS and taxon provided but not independently reviewed.' },
+                  { label: 'Verified', colour: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30', desc: 'Reviewed for stratigraphic completeness and GPS plausibility.' },
+                  { label: 'Research grade', colour: 'bg-amber-500/20 text-amber-300 border-amber-500/30', desc: 'Confirmed locality, formation, and element — suitable for citation in published work.' },
+                ].map(({ label, colour, desc }) => (
+                  <div key={label} className="flex gap-3 rounded-lg border border-white/6 bg-white/[0.03] p-3">
+                    <span className={`shrink-0 self-start rounded-md border px-2 py-0.5 text-[10px] font-black uppercase tracking-wider ${colour}`}>{label}</span>
+                    <p className="text-xs leading-relaxed text-white/60">{desc}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            {/* Quality score */}
+            <section>
+              <h3 className="mb-3 text-xs font-black uppercase tracking-widest text-accent">Quality score (0–100)</h3>
+              <div className="overflow-hidden rounded-lg border border-white/10">
+                {[
+                  { criterion: 'GPS recorded', pts: 30 },
+                  { criterion: 'Formation + stratigraphic stage', pts: 30 },
+                  { criterion: 'Measurements', pts: 20 },
+                  { criterion: 'At least one photograph', pts: 20 },
+                ].map(({ criterion, pts }) => (
+                  <div key={criterion} className="flex items-center justify-between border-b border-white/6 px-4 py-2.5 last:border-0">
+                    <span className="text-xs text-white/70">{criterion}</span>
+                    <span className="text-xs font-black text-accent">+{pts} pts</span>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-2 text-[11px] text-white/40">The "High quality" filter shows records scoring 70 or above.</p>
+            </section>
+
+            {/* Citation */}
+            <section>
+              <h3 className="mb-3 text-xs font-black uppercase tracking-widest text-accent">How to cite this dataset</h3>
+              <div className="space-y-2">
+                <div className="group relative rounded-lg border border-white/10 bg-black/30 p-3">
+                  <p className="pr-8 font-mono text-[11px] leading-relaxed text-white/70">{plainCite}</p>
+                  <button
+                    onClick={() => copyText(plainCite)}
+                    className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-md text-white/30 transition-colors hover:bg-white/10 hover:text-white"
+                    title="Copy citation"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                <div className="group relative rounded-lg border border-white/10 bg-black/30 p-3">
+                  <pre className="pr-8 font-mono text-[11px] leading-relaxed text-white/70 whitespace-pre-wrap">{bibtex}</pre>
+                  <button
+                    onClick={() => copyText(bibtex)}
+                    className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-md text-white/30 transition-colors hover:bg-white/10 hover:text-white"
+                    title="Copy BibTeX"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            {/* Contact */}
+            <section className="rounded-lg border border-white/8 bg-white/[0.02] p-4">
+              <h3 className="mb-1.5 text-xs font-black uppercase tracking-widest text-accent">Contribute or report an issue</h3>
+              <p className="text-xs leading-relaxed text-white/60">
+                Records are added by collectors sharing from FossilMap. To contribute your own finds,{' '}
+                <a
+                  href="https://fenlanddavid.github.io/fossilmap/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-accent underline underline-offset-2 hover:text-white"
+                >
+                  install FossilMap
+                </a>
+                {' '}and use the Share to Community option on any specimen record.
+                To report a data issue or inaccuracy, contact the collector directly using the request access button on the record.
+              </p>
+            </section>
+
+          </div>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function formatDate(value: string) {
