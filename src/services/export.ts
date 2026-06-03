@@ -5,23 +5,23 @@ export function exportToCSV(finds: SharedFind[]) {
     "HRID", "Taxon", "Element", "Period", "Stage", "Formation", 
     "Latitude", "Longitude", "Date Collected", "Collector", "Repository", 
     "Quality Score", "Notes"
-  ].join(",");
+  ].map(csvCell).join(",");
 
   const rows = finds.map(f => [
     f.id,
-    `"${f.taxon}"`,
-    `"${f.element || ""}"`,
+    f.taxon,
+    f.element || "",
     f.period,
     f.stage || "",
-    `"${(f as any).formation || ""}"`,
+    f.formation || "",
     f.latitude,
     f.longitude,
     f.dateCollected,
-    `"${f.collectorName}"`,
-    `"${(f as any).repository || "Private"}"`,
-    (f as any).quality_score || 0,
-    `"${(f.notes || "").replace(/"/g, '""')}"`
-  ].join(","));
+    f.collectorName,
+    f.repository || "Private",
+    f.quality_score ?? 0,
+    f.notes || ""
+  ].map(csvCell).join(","));
 
   const csv = [headers, ...rows].join("\n");
   downloadFile(csv, "fossilmapped_dataset.csv", "text/csv");
@@ -42,4 +42,11 @@ function downloadFile(content: string, filename: string, type: string) {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+function csvCell(value: unknown): string {
+  let text = value == null ? "" : String(value);
+  text = text.replace(/\r?\n|\r/g, " ");
+  if (/^[=+\-@]/.test(text.trimStart())) text = `'${text}`;
+  return `"${text.replace(/"/g, '""')}"`;
 }
