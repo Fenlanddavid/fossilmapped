@@ -1556,8 +1556,19 @@ function formatDate(value: string) {
   return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
-function bibEscape(value: string) {
-  return value.replace(/[{}]/g, '')
+function bibEscape(value: string): string {
+  if (typeof value !== 'string') return ''
+  return value
+    .replace(/\\/g, '\\\\')   // must be first — escapes the escape char
+    .replace(/\$/g, '\\$')    // math mode delimiter
+    .replace(/\{/g, '\\{')    // brace open
+    .replace(/\}/g, '\\}')    // brace close
+    .replace(/%/g, '\\%')     // BibTeX comment character
+    .replace(/&/g, '\\&')     // alignment char in LaTeX tables
+    .replace(/#/g, '\\#')     // parameter char
+    .replace(/_/g, '\\_')     // subscript
+    .replace(/\^/g, '\\^{}')  // superscript
+    .replace(/~/g, '\\~{}')   // non-breaking space
 }
 
 export default App
