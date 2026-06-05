@@ -9,6 +9,10 @@ export interface SharedFind {
   locationName: string;
   latitude: number;
   longitude: number;
+  public_latitude?: number | null;
+  public_longitude?: number | null;
+  location_precision?: 'exact' | '100m' | '1km' | 'locality';
+  precision_locked?: boolean;
   dateCollected: string;
   photos: string[]; // Base64 or Cloud URLs
   measurements?: {

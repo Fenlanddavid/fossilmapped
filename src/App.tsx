@@ -36,6 +36,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { SharedFind } from './types'
 import { getSharedFinds, promoteVerification } from './services/supabase'
 import { exportToCSV, exportToJSON } from './services/export'
+import { displayCoords } from './services/precision'
 
 const ADMIN_PIN = import.meta.env.VITE_ADMIN_PIN as string | undefined
 
@@ -65,6 +66,10 @@ const MOCK_FINDS: SharedFind[] = [
     locationName: 'Whitby, North Yorkshire',
     latitude: 54.4858,
     longitude: -0.6206,
+    public_latitude: 54.486,
+    public_longitude: -0.621,
+    location_precision: '100m',
+    precision_locked: true,
     dateCollected: '2026-02-15',
     photos: [],
     sharedAt: '2026-02-16',
@@ -86,6 +91,10 @@ const MOCK_FINDS: SharedFind[] = [
     locationName: 'Lyme Regis, Dorset',
     latitude: 50.7252,
     longitude: -2.9345,
+    public_latitude: 50.7252,
+    public_longitude: -2.9345,
+    location_precision: 'exact',
+    precision_locked: false,
     dateCollected: '2026-02-20',
     photos: [],
     sharedAt: '2026-02-21',
@@ -359,13 +368,18 @@ function App() {
       if (!map.current?.isStyleLoaded()) return
       const source = map.current.getSource('finds') as maplibregl.GeoJSONSource | undefined
       if (!source) return
+      const features = filteredFinds.flatMap((find): GeoJSON.Feature<GeoJSON.Point, { id: string; verification_status: string }>[] => {
+        const coords = displayCoords(find)
+        if (coords.lat == null || coords.lon == null) return []
+        return [{
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [coords.lon, coords.lat] },
+          properties: { id: find.id, verification_status: find.verification_status ?? 'community' },
+        }]
+      })
       source.setData({
         type: 'FeatureCollection',
-        features: filteredFinds.map((find) => ({
-          type: 'Feature',
-          geometry: { type: 'Point', coordinates: [find.longitude, find.latitude] },
-          properties: { id: find.id, verification_status: find.verification_status ?? 'community' },
-        })),
+        features,
       })
     }
 
@@ -1215,6 +1229,8 @@ function FindDetailModal({ find, close, downloadBibTeX, requestAccess, isAdmin, 
   isAdmin: boolean
   onPromote: (find: SharedFind, status: 'community' | 'verified' | 'research_grade') => Promise<void>
 }) {
+  const coords = displayCoords(find)
+
   function copyPermalink() {
     const url = `${window.location.origin}${window.location.pathname}?find=${encodeURIComponent(find.id)}`
     navigator.clipboard.writeText(url).catch(() => {})
@@ -1280,11 +1296,26 @@ function FindDetailModal({ find, close, downloadBibTeX, requestAccess, isAdmin, 
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <InfoTile icon={Layers} label="Stratigraphy" primary={find.period || 'Unknown'} secondary={[find.stage, find.formation, find.member, find.bed].filter(Boolean).join(' / ')} />
-            <InfoTile icon={MapPin} label="Provenance" primary={find.locationName} secondary={`${find.latitude.toFixed(4)}, ${find.longitude.toFixed(4)}`} />
+            <InfoTile icon={MapPin} label="Provenance" primary={find.locationName} secondary={coords.label} />
             <InfoTile icon={User} label="Collector" primary={find.collectorName} secondary={find.collectorEmail ? 'Contact available' : 'No public contact'} />
             <InfoTile icon={Calendar} label="Date found" primary={formatDate(find.dateCollected)} secondary={`Shared ${formatDate(find.sharedAt)}`} />
             <InfoTile icon={Eye} label="Quality score" primary={`${getQuality(find)}%`} secondary="Completeness estimate" accent />
             <InfoTile icon={Archive} label="Repository" primary={find.repository || 'Private'} secondary={find.accession_id || 'No accession ID'} />
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            {!coords.isPrecise && (
+              <div className="inline-flex items-center gap-2 rounded-lg border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-amber-200">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                Approximate location
+              </div>
+            )}
+            {find.verification_status === 'research_grade' && (
+              <div className="inline-flex items-center gap-2 rounded-lg border border-blue-400/20 bg-blue-400/10 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-blue-200">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                Exact coordinates - research grade record
+              </div>
+            )}
           </div>
 
           <div className="mt-6">
@@ -1559,6 +1590,10 @@ function mapRawFind(row: RawSharedFind): SharedFind | null {
     locationName: normalise(row.location_name) || 'Unknown locality',
     latitude,
     longitude,
+    public_latitude: numberValue(row.public_latitude),
+    public_longitude: numberValue(row.public_longitude),
+    location_precision: precisionValue(row.location_precision),
+    precision_locked: booleanValue(row.precision_locked),
     dateCollected: normalise(row.date_collected) || normalise(row.observed_at) || '',
     photos: Array.isArray(row.photos) ? row.photos.filter((item): item is string => typeof item === 'string') : [],
     measurements,
@@ -1617,6 +1652,7 @@ function toBibTeX(find: SharedFind) {
   const month = Number.isFinite(date.getTime()) ? date.toLocaleString('en-GB', { month: 'long' }) : ''
   const strat = [find.period, find.stage, find.formation, find.member, find.bed].filter(Boolean).join('; ')
   const dims = measurementEntries(find).map(([key, value]) => `${key}: ${value}`).join(', ')
+  const coords = displayCoords(find)
 
   return `@misc{${find.id.replace(/[^a-zA-Z0-9_]/g, '_')},
   author = {${bibEscape(find.collectorName)}},
@@ -1624,7 +1660,7 @@ function toBibTeX(find: SharedFind) {
   howpublished = {\\url{https://Fenlanddavid.github.io/fossilmapped/}},
   year = {${year}},
   month = {${month}},
-  note = {FossilMapped ID: ${bibEscape(find.id)}. Stratigraphy: ${bibEscape(strat || 'Unknown')}. Provenance: ${bibEscape(find.locationName)} (${find.latitude.toFixed(4)}, ${find.longitude.toFixed(4)}). Repository: ${bibEscape(find.repository || 'Private')}.${dims ? ` Measurements: ${bibEscape(dims)}.` : ''}${find.notes ? ` Notes: ${bibEscape(find.notes)}.` : ''}}
+  note = {FossilMapped ID: ${bibEscape(find.id)}. Stratigraphy: ${bibEscape(strat || 'Unknown')}. Provenance: ${bibEscape(find.locationName)} (${bibEscape(coords.label)}). Repository: ${bibEscape(find.repository || 'Private')}.${dims ? ` Measurements: ${bibEscape(dims)}.` : ''}${find.notes ? ` Notes: ${bibEscape(find.notes)}.` : ''}}
 }`
 }
 
@@ -1635,6 +1671,18 @@ function normalise(value: unknown) {
 function numberValue(value: unknown) {
   const next = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN
   return Number.isFinite(next) ? next : null
+}
+
+function precisionValue(value: unknown): SharedFind['location_precision'] | undefined {
+  return value === 'exact' || value === '100m' || value === '1km' || value === 'locality'
+    ? value
+    : undefined
+}
+
+function booleanValue(value: unknown): boolean | undefined {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'string' && /^(true|false)$/i.test(value)) return value.toLowerCase() === 'true'
+  return undefined
 }
 
 function percent(value: number, total: number) {

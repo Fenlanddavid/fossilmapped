@@ -21,6 +21,10 @@ CREATE TABLE public.shared_finds (
     location_name     text,
     latitude          double precision NOT NULL,
     longitude         double precision NOT NULL,
+    public_latitude   double precision,
+    public_longitude  double precision,
+    location_precision text NOT NULL DEFAULT 'exact',
+    precision_locked  boolean NOT NULL DEFAULT true,
     date_collected    timestamp with time zone NOT NULL,
     photos            text[] DEFAULT '{}',     -- Array of Cloud Storage URLs
     measurements      jsonb DEFAULT '{}'::jsonb,
@@ -39,6 +43,7 @@ CREATE TABLE public.shared_finds (
     CONSTRAINT shared_finds_fossilmap_id_key UNIQUE (fossilmap_id),
     CONSTRAINT shared_finds_latitude_range CHECK (latitude BETWEEN -90 AND 90),
     CONSTRAINT shared_finds_longitude_range CHECK (longitude BETWEEN -180 AND 180),
+    CONSTRAINT shared_finds_location_precision_check CHECK (location_precision IN ('exact','100m','1km','locality')),
     CONSTRAINT shared_finds_quality_score_range CHECK (quality_score BETWEEN 0 AND 100),
     CONSTRAINT shared_finds_verification_status_check CHECK (verification_status IN ('community', 'verified', 'research_grade')),
     CONSTRAINT shared_finds_deleted_at_check CHECK (is_deleted = false OR deleted_at IS NOT NULL)
