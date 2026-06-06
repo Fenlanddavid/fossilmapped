@@ -38,7 +38,7 @@ import { getSharedFinds, promoteVerification } from './services/supabase'
 import { exportToCSV, exportToJSON } from './services/export'
 import { displayCoords } from './services/precision'
 
-const ADMIN_PIN = import.meta.env.VITE_ADMIN_PIN as string | undefined
+const ADMIN_PIN = (import.meta.env.VITE_ADMIN_PIN as string | undefined)?.trim()
 
 type ActiveTab = 'map' | 'database' | 'gallery' | 'stats'
 type SourceStatus = 'loading' | 'live' | 'demo' | 'empty'
@@ -219,6 +219,10 @@ function App() {
   }
 
   async function promoteFind(find: SharedFind, status: 'community' | 'verified' | 'research_grade') {
+    if (!isAdmin) {
+      setNotice('Admin mode is locked.')
+      return
+    }
     try {
       await promoteVerification(find.id, status)
       const updated: SharedFind = { ...find, verification_status: status }
@@ -231,7 +235,7 @@ function App() {
 
   function handleAdminLogin(e: React.FormEvent) {
     e.preventDefault()
-    if (adminPinInput === ADMIN_PIN) {
+    if (ADMIN_PIN && adminPinInput.trim() === ADMIN_PIN) {
       setIsAdmin(true)
       setShowAdminLogin(false)
       setAdminPinInput('')
@@ -267,7 +271,7 @@ function App() {
 
     map.current = new maplibregl.Map({
       container: mapContainer.current,
-      style: 'https://tiles.openfreemap.org/styles/dark',
+      style: 'https://tiles.openfreemap.org/styles/bright',
       center: [-2.0, 54.0],
       zoom: 5.5,
       clickTolerance: 40,
@@ -318,7 +322,7 @@ function App() {
         source: 'finds',
         filter: ['!', ['has', 'point_count']],
         paint: {
-          'circle-color': ['match', ['get', 'verification_status'], 'research_grade', '#3b82f6', 'verified', '#22c55e', '#f59e0b'],
+          'circle-color': ['match', ['get', 'verification_status'], 'research_grade', '#10b981', 'verified', '#38bdf8', '#f59e0b'],
           'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 8, 10, 12, 15, 18],
           'circle-stroke-width': 2,
           'circle-stroke-color': '#ffffff',
@@ -652,6 +656,7 @@ function App() {
               <Lock className="h-4 w-4 text-amber-400" />
               <span className="text-sm font-black uppercase tracking-widest text-amber-400">Admin login</span>
             </div>
+            <p className="mb-4 text-[11px] leading-relaxed text-white/45">This unlocks local review controls. Registry permissions still depend on Supabase policies.</p>
             <input
               type="password"
               placeholder="Enter PIN"
@@ -1530,7 +1535,7 @@ function buildAnalytics(finds: SharedFind[]) {
   const contributors = new Set(finds.map((find) => find.collectorName).filter(Boolean)).size
   const contactable = finds.filter((find) => !!find.collectorEmail).length
   const withPhotos = finds.filter((find) => (find.photos?.length || 0) > 0).length
-  const withRepository = finds.filter((find) => !!find.repository && find.repository.toLowerCase() !== 'private').length
+  const withRepository = finds.filter(hasPublicRepository).length
   const highQuality = finds.filter((find) => getQuality(find) >= 70).length
   const averageQuality = total ? Math.round(finds.reduce((sum, find) => sum + getQuality(find), 0) / total) : 0
   const researchGrade = finds.filter((find) => find.verification_status === 'research_grade').length
@@ -1626,7 +1631,7 @@ function getQuality(find: SharedFind) {
     measurementEntries(find).length > 0,
     (find.photos?.length || 0) > 0,
     (find.photos?.length || 0) >= 2,
-    !!find.repository && find.repository.toLowerCase() !== 'private',
+    hasPublicRepository(find),
     !!find.accession_id,
     !!find.collectorEmail,
   ]
@@ -1637,6 +1642,12 @@ function getQualityTier(score: number): 'research_grade' | 'community' | 'basic'
   if (score >= 80) return 'research_grade'
   if (score >= 50) return 'community'
   return 'basic'
+}
+
+function hasPublicRepository(find: Pick<SharedFind, 'repository'>) {
+  const repository = normalise(find.repository).toLowerCase()
+  if (!repository) return false
+  return !['private', 'private collection', 'personal collection', 'collector collection', 'none', 'n/a', 'unknown'].includes(repository)
 }
 
 function measurementEntries(find: SharedFind) {
@@ -1756,9 +1767,9 @@ function AboutModal({ close }: { close: () => void }) {
               <h3 className="mb-3 text-xs font-black uppercase tracking-widest text-accent">How records are verified</h3>
               <div className="space-y-2">
                 {[
-                  { label: 'Community', colour: 'bg-blue-500/20 text-blue-300 border-blue-500/30', desc: 'Submitted by a collector. GPS and taxon provided but not independently reviewed.' },
-                  { label: 'Verified', colour: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30', desc: 'Reviewed for stratigraphic completeness and GPS plausibility.' },
-                  { label: 'Research grade', colour: 'bg-amber-500/20 text-amber-300 border-amber-500/30', desc: 'Confirmed locality, formation, and element — suitable for citation in published work.' },
+                  { label: 'Community Record', colour: 'bg-white/5 text-white/40 border-white/10', desc: 'Submitted by a collector. GPS and taxon provided but not independently reviewed.' },
+                  { label: 'Verified', colour: 'bg-sky-400/10 text-sky-300 border-sky-400/30', desc: 'Reviewed for stratigraphic completeness and GPS plausibility.' },
+                  { label: 'Research Grade', colour: 'bg-emerald-400/10 text-emerald-300 border-emerald-400/30', desc: 'Confirmed locality, formation, and element — suitable for citation in published work.' },
                 ].map(({ label, colour, desc }) => (
                   <div key={label} className="flex gap-3 rounded-lg border border-white/6 bg-white/[0.03] p-3">
                     <span className={`shrink-0 self-start rounded-md border px-2 py-0.5 text-[10px] font-black uppercase tracking-wider ${colour}`}>{label}</span>
@@ -1771,16 +1782,30 @@ function AboutModal({ close }: { close: () => void }) {
             {/* Quality score */}
             <section>
               <h3 className="mb-3 text-xs font-black uppercase tracking-widest text-accent">Quality score (0–100)</h3>
+              <p className="mb-2 text-[11px] leading-relaxed text-white/50">
+                FossilMap submits a weighted completeness score when available: GPS precision 30, stratigraphic detail 30,
+                measurements 20, and visual documentation 20. If a submitted score is missing, FossilMapped estimates
+                completeness from these public fields.
+              </p>
               <div className="overflow-hidden rounded-lg border border-white/10">
                 {[
-                  { criterion: 'GPS recorded', pts: 30 },
-                  { criterion: 'Formation + stratigraphic stage', pts: 30 },
-                  { criterion: 'Measurements', pts: 20 },
-                  { criterion: 'At least one photograph', pts: 20 },
-                ].map(({ criterion, pts }) => (
-                  <div key={criterion} className="flex items-center justify-between border-b border-white/6 px-4 py-2.5 last:border-0">
+                  'Taxon identified',
+                  'Location name',
+                  'GPS coordinates',
+                  'Geological period',
+                  'Formation',
+                  'Stratigraphic stage',
+                  'Member',
+                  'Element / skeletal part',
+                  'Measurements',
+                  'At least one photograph',
+                  'Two or more photographs',
+                  'Repository (not private)',
+                  'Accession ID',
+                  'Collector email',
+                ].map((criterion) => (
+                  <div key={criterion} className="flex items-center border-b border-white/6 px-4 py-2 last:border-0">
                     <span className="text-xs text-white/70">{criterion}</span>
-                    <span className="text-xs font-black text-accent">+{pts} pts</span>
                   </div>
                 ))}
               </div>
