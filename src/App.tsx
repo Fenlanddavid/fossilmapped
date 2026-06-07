@@ -431,6 +431,7 @@ function App() {
         type: 'FeatureCollection',
         features,
       })
+      map.current?.triggerRepaint()
     }
 
     if (map.current.isStyleLoaded()) updateData()
