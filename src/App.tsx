@@ -38,19 +38,16 @@ import { getSharedFinds, promoteVerification } from './services/supabase'
 import { exportToCSV, exportToJSON } from './services/export'
 import { displayCoords } from './services/precision'
 import { toBibTeX } from './services/citation'
+import { buildMapFindCollections, emptyMapFindCollection } from './services/mapData'
 
 const ADMIN_PIN = (import.meta.env.VITE_ADMIN_PIN as string | undefined)?.trim()
+const FINDS_PINS_SOURCE = 'finds-pins'
+const FINDS_CLUSTERS_SOURCE = 'finds-clusters'
 
 type ActiveTab = 'map' | 'database' | 'gallery' | 'stats'
 type SourceStatus = 'loading' | 'live' | 'demo' | 'empty'
 
 type RawSharedFind = Record<string, unknown>
-type MapFindProperties = {
-  id: string
-  verification_status: string
-  is_precise: boolean
-  location_precision: NonNullable<SharedFind['location_precision']>
-}
 
 const TABS: Array<{ id: ActiveTab; label: string; shortLabel: string; icon: React.ComponentType<{ className?: string }> }> = [
   { id: 'map', label: 'Spatial Map', shortLabel: 'Map', icon: MapIcon },
@@ -135,6 +132,7 @@ function App() {
   const [showAdminLogin, setShowAdminLogin] = useState(false)
   const [adminPinInput, setAdminPinInput] = useState('')
   const [adminPinError, setAdminPinError] = useState(false)
+  const [mapSourceVersion, setMapSourceVersion] = useState(0)
   const mapContainer = useRef<HTMLDivElement>(null)
   const map = useRef<maplibregl.Map | null>(null)
 
@@ -300,19 +298,25 @@ function App() {
     })
 
     map.current.on('load', () => {
-      map.current?.addSource('finds', {
+      const emptyData = emptyMapFindCollection()
+      map.current?.addSource(FINDS_CLUSTERS_SOURCE, {
         type: 'geojson',
         cluster: true,
-        clusterMaxZoom: 12,
-        clusterRadius: 50,
-        data: { type: 'FeatureCollection', features: [] },
+        clusterMaxZoom: 10,
+        clusterRadius: 36,
+        data: emptyData,
+      })
+
+      map.current?.addSource(FINDS_PINS_SOURCE, {
+        type: 'geojson',
+        data: emptyData,
       })
 
       // Cluster circle
       map.current?.addLayer({
         id: 'finds-cluster',
         type: 'circle',
-        source: 'finds',
+        source: FINDS_CLUSTERS_SOURCE,
         filter: ['has', 'point_count'],
         paint: {
           'circle-color': '#f59e0b',
@@ -327,7 +331,7 @@ function App() {
       map.current?.addLayer({
         id: 'finds-cluster-count',
         type: 'symbol',
-        source: 'finds',
+        source: FINDS_CLUSTERS_SOURCE,
         filter: ['has', 'point_count'],
         layout: {
           'text-field': '{point_count_abbreviated}',
@@ -341,8 +345,8 @@ function App() {
       map.current?.addLayer({
         id: 'finds-approx-area',
         type: 'circle',
-        source: 'finds',
-        filter: ['all', ['!', ['has', 'point_count']], ['==', ['get', 'is_precise'], false]],
+        source: FINDS_PINS_SOURCE,
+        filter: ['==', ['get', 'is_precise'], false],
         paint: {
           'circle-color': '#f59e0b',
           'circle-radius': ['match', ['get', 'location_precision'], '100m', 18, '1km', 26, 'locality', 34, 20],
@@ -357,8 +361,7 @@ function App() {
       map.current?.addLayer({
         id: 'finds-layer',
         type: 'circle',
-        source: 'finds',
-        filter: ['!', ['has', 'point_count']],
+        source: FINDS_PINS_SOURCE,
         paint: {
           'circle-color': ['match', ['get', 'verification_status'], 'research_grade', '#10b981', 'verified', '#38bdf8', '#f59e0b'],
           'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 8, 10, 12, 15, 18],
@@ -373,7 +376,7 @@ function App() {
         const features = map.current!.queryRenderedFeatures(e.point, { layers: ['finds-cluster'] })
         const clusterId = features[0]?.properties?.cluster_id
         if (!clusterId) return
-        const source = map.current!.getSource('finds') as maplibregl.GeoJSONSource
+        const source = map.current!.getSource(FINDS_CLUSTERS_SOURCE) as maplibregl.GeoJSONSource
         source.getClusterExpansionZoom(clusterId).then((zoom) => {
           const coords = (features[0].geometry as GeoJSON.Point).coordinates as [number, number]
           map.current!.easeTo({ center: coords, zoom })
@@ -393,6 +396,8 @@ function App() {
       map.current?.on('mouseleave', 'finds-layer', () => {
         map.current!.getCanvas().style.cursor = ''
       })
+
+      setMapSourceVersion((version) => version + 1)
     })
 
     window.setTimeout(() => map.current?.resize(), 100)
@@ -411,32 +416,21 @@ function App() {
         map.current?.once('idle', updateData)
         return
       }
-      const source = map.current.getSource('finds') as maplibregl.GeoJSONSource | undefined
-      if (!source) return
-      const features = filteredFinds.flatMap((find): GeoJSON.Feature<GeoJSON.Point, MapFindProperties>[] => {
-        const coords = displayCoords(find)
-        if (coords.lat == null || coords.lon == null) return []
-        return [{
-          type: 'Feature',
-          geometry: { type: 'Point', coordinates: [coords.lon, coords.lat] },
-          properties: {
-            id: find.id,
-            verification_status: find.verification_status ?? 'community',
-            is_precise: coords.isPrecise,
-            location_precision: find.location_precision ?? 'exact',
-          },
-        }]
-      })
-      source.setData({
-        type: 'FeatureCollection',
-        features,
-      })
+      const pinSource = map.current.getSource(FINDS_PINS_SOURCE) as maplibregl.GeoJSONSource | undefined
+      const clusterSource = map.current.getSource(FINDS_CLUSTERS_SOURCE) as maplibregl.GeoJSONSource | undefined
+      if (!pinSource || !clusterSource) {
+        map.current?.once('idle', updateData)
+        return
+      }
+      const collections = buildMapFindCollections(filteredFinds)
+      pinSource.setData(collections.pins)
+      clusterSource.setData(collections.clusters)
       map.current?.triggerRepaint()
     }
 
     if (map.current.isStyleLoaded()) updateData()
     else map.current.once('idle', updateData)
-  }, [filteredFinds, loading])
+  }, [filteredFinds, loading, mapSourceVersion])
 
   useEffect(() => {
     const mapInstance = map.current
