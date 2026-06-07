@@ -118,6 +118,7 @@ function App() {
   const [selectedFind, setSelectedFind] = useState<SharedFind | null>(null)
   const [finds, setFinds] = useState<SharedFind[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadTick, setLoadTick] = useState(0)
   const [sourceStatus, setSourceStatus] = useState<SourceStatus>('loading')
   const [sourceMessage, setSourceMessage] = useState('')
   const [showFilters, setShowFilters] = useState(false)
@@ -170,7 +171,7 @@ function App() {
       }
     }
     loadData()
-  }, [])
+  }, [loadTick])
 
   const filteredFinds = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
@@ -529,7 +530,7 @@ function App() {
             </button>
 
             <button
-              onClick={() => window.location.reload()}
+              onClick={() => setLoadTick((n) => n + 1)}
               className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-white/10 bg-white/5 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
               title="Refresh registry"
               aria-label="Refresh registry"
