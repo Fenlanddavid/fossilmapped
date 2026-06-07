@@ -45,6 +45,12 @@ type ActiveTab = 'map' | 'database' | 'gallery' | 'stats'
 type SourceStatus = 'loading' | 'live' | 'demo' | 'empty'
 
 type RawSharedFind = Record<string, unknown>
+type MapFindProperties = {
+  id: string
+  verification_status: string
+  is_precise: boolean
+  location_precision: NonNullable<SharedFind['location_precision']>
+}
 
 const TABS: Array<{ id: ActiveTab; label: string; shortLabel: string; icon: React.ComponentType<{ className?: string }> }> = [
   { id: 'map', label: 'Spatial Map', shortLabel: 'Map', icon: MapIcon },
@@ -330,6 +336,22 @@ function App() {
         paint: { 'text-color': '#000000' },
       })
 
+      // Soft halo for non-exact public locations.
+      map.current?.addLayer({
+        id: 'finds-approx-area',
+        type: 'circle',
+        source: 'finds',
+        filter: ['all', ['!', ['has', 'point_count']], ['==', ['get', 'is_precise'], false]],
+        paint: {
+          'circle-color': '#f59e0b',
+          'circle-radius': ['match', ['get', 'location_precision'], '100m', 18, '1km', 26, 'locality', 34, 20],
+          'circle-opacity': 0.16,
+          'circle-stroke-width': 1,
+          'circle-stroke-color': '#fbbf24',
+          'circle-stroke-opacity': 0.38,
+        },
+      })
+
       // Individual pins
       map.current?.addLayer({
         id: 'finds-layer',
@@ -387,13 +409,18 @@ function App() {
       if (!map.current?.isStyleLoaded()) return
       const source = map.current.getSource('finds') as maplibregl.GeoJSONSource | undefined
       if (!source) return
-      const features = filteredFinds.flatMap((find): GeoJSON.Feature<GeoJSON.Point, { id: string; verification_status: string }>[] => {
+      const features = filteredFinds.flatMap((find): GeoJSON.Feature<GeoJSON.Point, MapFindProperties>[] => {
         const coords = displayCoords(find)
         if (coords.lat == null || coords.lon == null) return []
         return [{
           type: 'Feature',
           geometry: { type: 'Point', coordinates: [coords.lon, coords.lat] },
-          properties: { id: find.id, verification_status: find.verification_status ?? 'community' },
+          properties: {
+            id: find.id,
+            verification_status: find.verification_status ?? 'community',
+            is_precise: coords.isPrecise,
+            location_precision: find.location_precision ?? 'exact',
+          },
         }]
       })
       source.setData({

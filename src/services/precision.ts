@@ -15,8 +15,29 @@ export function locationPrecisionLabel(level: SharedFind["location_precision"]):
   if (level === "exact") return "Exact GPS";
   if (level === "100m") return "~100m area";
   if (level === "1km") return "~1km area";
-  if (level === "locality") return "Locality name only";
+  if (level === "locality") return "Locality area";
   return "Approximate area";
+}
+
+function roundedCoords(
+  lat: number | null,
+  lon: number | null,
+  precision: SharedFind["location_precision"],
+): { lat: number; lon: number } | null {
+  if (lat == null || lon == null) return null;
+  if (precision === "100m") {
+    return {
+      lat: Math.round(lat * 1000) / 1000,
+      lon: Math.round(lon * 1000) / 1000,
+    };
+  }
+  if (precision === "1km" || precision === "locality") {
+    return {
+      lat: Math.round(lat * 100) / 100,
+      lon: Math.round(lon * 100) / 100,
+    };
+  }
+  return { lat, lon };
 }
 
 export function displayCoords(find: SharedFind): DisplayCoords {
@@ -38,25 +59,37 @@ export function displayCoords(find: SharedFind): DisplayCoords {
     };
   }
 
-  if (precision === "locality") {
-    return {
-      lat: null,
-      lon: null,
-      label: "Locality name only",
-      isPrecise: false,
-    };
-  }
-
   const hasPublicPin =
     publicLat != null &&
     publicLon != null &&
     !(publicLat === 0 && publicLon === 0);
 
+  if (precision !== "exact") {
+    const approximate = hasPublicPin
+      ? roundedCoords(publicLat, publicLon, precision)
+      : roundedCoords(exactLat, exactLon, precision);
+    if (approximate) {
+      return {
+        lat: approximate.lat,
+        lon: approximate.lon,
+        label: locationPrecisionLabel(precision),
+        isPrecise: false,
+      };
+    }
+
+    return {
+      lat: null,
+      lon: null,
+      label: "Location unavailable",
+      isPrecise: false,
+    };
+  }
+
   if (find.precision_locked === true) {
     return {
       lat: hasPublicPin ? publicLat : null,
       lon: hasPublicPin ? publicLon : null,
-      label: hasPublicPin ? locationPrecisionLabel(precision) : "Locality name only",
+      label: hasPublicPin ? locationPrecisionLabel(precision) : "Location unavailable",
       isPrecise: false,
     };
   }
