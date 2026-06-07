@@ -407,7 +407,10 @@ function App() {
     if (!map.current || loading) return
 
     const updateData = () => {
-      if (!map.current?.isStyleLoaded()) return
+      if (!map.current?.isStyleLoaded()) {
+        map.current?.once('idle', updateData)
+        return
+      }
       const source = map.current.getSource('finds') as maplibregl.GeoJSONSource | undefined
       if (!source) return
       const features = filteredFinds.flatMap((find): GeoJSON.Feature<GeoJSON.Point, MapFindProperties>[] => {
@@ -430,8 +433,8 @@ function App() {
       })
     }
 
-    if (map.current.loaded()) updateData()
-    else map.current.once('load', updateData)
+    if (map.current.isStyleLoaded()) updateData()
+    else map.current.once('idle', updateData)
   }, [filteredFinds, loading])
 
   useEffect(() => {
