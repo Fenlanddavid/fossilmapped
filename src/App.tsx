@@ -37,6 +37,7 @@ import { SharedFind } from './types'
 import { getSharedFinds, promoteVerification } from './services/supabase'
 import { exportToCSV, exportToJSON } from './services/export'
 import { displayCoords } from './services/precision'
+import { toBibTeX } from './services/citation'
 
 const ADMIN_PIN = (import.meta.env.VITE_ADMIN_PIN as string | undefined)?.trim()
 
@@ -223,6 +224,12 @@ function App() {
       setNotice('Admin mode is locked.')
       return
     }
+    const label = status === 'research_grade' ? 'Research Grade' : status.charAt(0).toUpperCase() + status.slice(1)
+    const exactGpsWarning = status === 'verified' || status === 'research_grade'
+      ? ' This currently makes the exact stored GPS coordinates visible for this record.'
+      : ''
+    const confirmed = window.confirm(`Promote ${find.id} to ${label}? This will be visible on FossilMapped.${exactGpsWarning}`)
+    if (!confirmed) return
     try {
       await promoteVerification(find.id, status)
       const updated: SharedFind = { ...find, verification_status: status }
@@ -275,6 +282,14 @@ function App() {
       center: [-2.0, 54.0],
       zoom: 5.5,
       clickTolerance: 40,
+    })
+
+    map.current.on('error', (e) => {
+      console.warn('MapLibre error:', e.error?.message ?? e)
+      // Show a notice if the map style fails to load (e.g. OpenFreemap unavailable).
+      if (e.error?.message?.includes('style') || e.error?.message?.includes('fetch')) {
+        setNotice('Map tiles unavailable — check your connection.')
+      }
     })
 
     map.current.on('load', () => {
@@ -398,8 +413,8 @@ function App() {
     const onClick = (event: maplibregl.MapMouseEvent) => {
       if (!mapInstance.getLayer('finds-layer')) return
       const bbox: [[number, number], [number, number]] = [
-        [event.point.x - 22, event.point.y - 22],
-        [event.point.x + 22, event.point.y + 22],
+        [event.point.x - 32, event.point.y - 32],
+        [event.point.x + 32, event.point.y + 32],
       ]
       const features = mapInstance.queryRenderedFeatures(bbox, { layers: ['finds-layer'] })
       const findId = features[0]?.properties?.id
@@ -447,6 +462,7 @@ function App() {
               onClick={() => {
                 setContactableOnly(true)
                 setShowFilters(true)
+                setActiveTab('database')
               }}
               className="rounded-md px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-white/45 transition-colors hover:text-white"
             >
@@ -1657,24 +1673,6 @@ function measurementEntries(find: SharedFind) {
   return entries
 }
 
-function toBibTeX(find: SharedFind) {
-  const date = find.sharedAt ? new Date(find.sharedAt) : new Date()
-  const year = Number.isFinite(date.getTime()) ? date.getFullYear() : new Date().getFullYear()
-  const month = Number.isFinite(date.getTime()) ? date.toLocaleString('en-GB', { month: 'long' }) : ''
-  const strat = [find.period, find.stage, find.formation, find.member, find.bed].filter(Boolean).join('; ')
-  const dims = measurementEntries(find).map(([key, value]) => `${key}: ${value}`).join(', ')
-  const coords = displayCoords(find)
-
-  return `@misc{${find.id.replace(/[^a-zA-Z0-9_]/g, '_')},
-  author = {${bibEscape(find.collectorName)}},
-  title = {FossilMapped record: {${bibEscape(find.taxon)}}},
-  howpublished = {\\url{https://Fenlanddavid.github.io/fossilmapped/}},
-  year = {${year}},
-  month = {${month}},
-  note = {FossilMapped ID: ${bibEscape(find.id)}. Stratigraphy: ${bibEscape(strat || 'Unknown')}. Provenance: ${bibEscape(find.locationName)} (${bibEscape(coords.label)}). Repository: ${bibEscape(find.repository || 'Private')}.${dims ? ` Measurements: ${bibEscape(dims)}.` : ''}${find.notes ? ` Notes: ${bibEscape(find.notes)}.` : ''}}
-}`
-}
-
 function normalise(value: unknown) {
   return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : ''
 }
@@ -1868,21 +1866,6 @@ function formatDate(value: string) {
   const date = new Date(value)
   if (!Number.isFinite(date.getTime())) return 'Unknown'
   return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-}
-
-function bibEscape(value: string): string {
-  if (typeof value !== 'string') return ''
-  return value
-    .replace(/\\/g, '\\\\')   // must be first — escapes the escape char
-    .replace(/\$/g, '\\$')    // math mode delimiter
-    .replace(/\{/g, '\\{')    // brace open
-    .replace(/\}/g, '\\}')    // brace close
-    .replace(/%/g, '\\%')     // BibTeX comment character
-    .replace(/&/g, '\\&')     // alignment char in LaTeX tables
-    .replace(/#/g, '\\#')     // parameter char
-    .replace(/_/g, '\\_')     // subscript
-    .replace(/\^/g, '\\^{}')  // superscript
-    .replace(/~/g, '\\~{}')   // non-breaking space
 }
 
 export default App

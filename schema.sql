@@ -62,10 +62,10 @@ CREATE POLICY "Anyone can read visible shared finds"
 CREATE POLICY "Anyone can share a find"
     ON public.shared_finds FOR INSERT WITH CHECK (is_deleted = false);
 
--- Temporary client-compatible policies. Replace these with authenticated
--- owner/admin policies or Edge Functions when implementing the auth hardening.
-CREATE POLICY "Anyone can update a find"
-    ON public.shared_finds FOR UPDATE USING (true) WITH CHECK (true);
+-- No public UPDATE policy is created. Admin writes must go through a trusted
+-- server-side path such as Supabase Auth + RLS or an Edge Function using the
+-- service-role key. The anon client can read visible rows and insert shares,
+-- but it must not be able to promote, delete, or edit existing records.
 
 -- 5. Reload schema cache
 NOTIFY pgrst, 'reload schema';

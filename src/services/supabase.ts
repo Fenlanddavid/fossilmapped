@@ -37,11 +37,24 @@ export async function getSharedFinds() {
 }
 
 export async function promoteVerification(hrid: string, status: 'community' | 'verified' | 'research_grade') {
-  const { error } = await supabase
+  const cleanHrid = hrid.trim()
+  if (!cleanHrid) {
+    throw new Error('Promotion failed: missing record HRID.')
+  }
+
+  const { data, error } = await supabase
     .from('shared_finds')
     .update({ verification_status: status })
-    .eq('hrid', hrid)
+    .eq('hrid', cleanHrid)
+    .select('hrid')
+
   if (error) throw error
+  if (!data || data.length === 0) {
+    throw new Error(`Promotion did not apply. No writable row matched HRID "${cleanHrid}" or direct client updates are blocked by RLS.`)
+  }
+  if (data.length > 1) {
+    throw new Error(`Promotion matched ${data.length} rows for HRID "${cleanHrid}". Expected exactly one.`)
+  }
 }
 
 export async function shareToCommunity(payload: any) {

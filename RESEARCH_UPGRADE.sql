@@ -144,5 +144,22 @@ DROP POLICY IF EXISTS "Anyone can read visible shared finds" ON public.shared_fi
 CREATE POLICY "Anyone can read visible shared finds"
     ON public.shared_finds FOR SELECT USING (is_deleted = false);
 
--- 10. Reload schema cache
+-- 10. Remove direct client UPDATE policies. Promotion/deletion/editing should
+-- be performed only by a trusted server-side path such as Supabase Auth + RLS
+-- or an Edge Function using the service-role key.
+DO $$
+DECLARE
+    policy_name text;
+BEGIN
+    FOR policy_name IN
+        SELECT pol.polname
+        FROM pg_policy pol
+        WHERE pol.polrelid = 'public.shared_finds'::regclass
+          AND pol.polcmd IN ('w', '*')
+    LOOP
+        EXECUTE format('DROP POLICY IF EXISTS %I ON public.shared_finds', policy_name);
+    END LOOP;
+END $$;
+
+-- 11. Reload schema cache
 NOTIFY pgrst, 'reload schema';
