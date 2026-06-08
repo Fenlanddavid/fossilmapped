@@ -36,15 +36,22 @@ export async function getSharedFinds() {
   }
 }
 
-export async function promoteVerification(hrid: string, status: 'community' | 'verified' | 'research_grade') {
+export async function promoteVerification(
+  hrid: string,
+  status: 'community' | 'verified' | 'research_grade',
+  options: { coordinatesReleased?: boolean } = {},
+) {
   const cleanHrid = hrid.trim()
   if (!cleanHrid) {
     throw new Error('Promotion failed: missing record HRID.')
   }
 
+  const update: { verification_status: typeof status; coordinates_released?: boolean } = { verification_status: status }
+  if (typeof options.coordinatesReleased === 'boolean') update.coordinates_released = options.coordinatesReleased
+
   const { data, error } = await supabase
     .from('shared_finds')
-    .update({ verification_status: status })
+    .update(update)
     .eq('hrid', cleanHrid)
     .select('hrid')
 
@@ -54,6 +61,27 @@ export async function promoteVerification(hrid: string, status: 'community' | 'v
   }
   if (data.length > 1) {
     throw new Error(`Promotion matched ${data.length} rows for HRID "${cleanHrid}". Expected exactly one.`)
+  }
+}
+
+export async function deleteSharedFind(hrid: string) {
+  const cleanHrid = hrid.trim()
+  if (!cleanHrid) {
+    throw new Error('Delete failed: missing record HRID.')
+  }
+
+  const { data, error } = await supabase
+    .from('shared_finds')
+    .update({ is_deleted: true, deleted_at: new Date().toISOString() })
+    .eq('hrid', cleanHrid)
+    .select('hrid')
+
+  if (error) throw error
+  if (!data || data.length === 0) {
+    throw new Error(`Delete did not apply. No writable row matched HRID "${cleanHrid}" or direct client updates are blocked by RLS.`)
+  }
+  if (data.length > 1) {
+    throw new Error(`Delete matched ${data.length} rows for HRID "${cleanHrid}". Expected exactly one.`)
   }
 }
 

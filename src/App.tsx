@@ -28,13 +28,14 @@ import {
   Ruler,
   Search,
   ShieldCheck,
+  Trash2,
   User,
   X,
 } from 'lucide-react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { SharedFind } from './types'
-import { getSharedFinds, promoteVerification } from './services/supabase'
+import { deleteSharedFind, getSharedFinds, promoteVerification } from './services/supabase'
 import { exportToCSV, exportToJSON } from './services/export'
 import { displayCoords } from './services/precision'
 import { toBibTeX } from './services/citation'
@@ -74,6 +75,7 @@ const MOCK_FINDS: SharedFind[] = [
     public_longitude: -0.621,
     location_precision: '100m',
     precision_locked: true,
+    coordinates_released: false,
     dateCollected: '2026-02-15',
     photos: [],
     sharedAt: '2026-02-16',
@@ -99,6 +101,7 @@ const MOCK_FINDS: SharedFind[] = [
     public_longitude: -2.9345,
     location_precision: 'exact',
     precision_locked: false,
+    coordinates_released: false,
     dateCollected: '2026-02-20',
     photos: [],
     sharedAt: '2026-02-21',
@@ -230,18 +233,35 @@ function App() {
       return
     }
     const label = status === 'research_grade' ? 'Research Grade' : status.charAt(0).toUpperCase() + status.slice(1)
-    const exactGpsWarning = status === 'verified' || status === 'research_grade'
-      ? ' This currently makes the exact stored GPS coordinates visible for this record.'
-      : ''
-    const confirmed = window.confirm(`Promote ${find.id} to ${label}? This will be visible on FossilMapped.${exactGpsWarning}`)
+    const confirmed = window.confirm(`Promote ${find.id} to ${label}? This will be visible on FossilMapped.`)
     if (!confirmed) return
+    const coordinatesReleased = status === 'verified' || status === 'research_grade'
+      ? window.confirm(`Release exact stored coordinates for ${find.id}? Choose Cancel to keep the collector's public location privacy setting.`)
+      : false
     try {
-      await promoteVerification(find.id, status)
-      const updated: SharedFind = { ...find, verification_status: status }
+      await promoteVerification(find.id, status, { coordinatesReleased })
+      const updated: SharedFind = { ...find, verification_status: status, coordinates_released: coordinatesReleased }
       setFinds(prev => prev.map(f => f.id === find.id ? updated : f))
       setSelectedFind(updated)
     } catch (e: any) {
       setNotice(`Promote failed: ${e?.message ?? 'Unknown error'}`)
+    }
+  }
+
+  async function deleteFind(find: SharedFind) {
+    if (!isAdmin) {
+      setNotice('Admin mode is locked.')
+      return
+    }
+    const confirmed = window.confirm(`Delete ${find.id} from FossilMapped? This hides the record from the public map and database.`)
+    if (!confirmed) return
+    try {
+      await deleteSharedFind(find.id)
+      setFinds(prev => prev.filter(f => f.id !== find.id))
+      setSelectedFind(null)
+      setNotice(`Deleted ${find.id} from FossilMapped.`)
+    } catch (e: any) {
+      setNotice(`Delete failed: ${e?.message ?? 'Unknown error'}`)
     }
   }
 
@@ -685,6 +705,7 @@ function App() {
           requestAccess={requestAccess}
           isAdmin={isAdmin}
           onPromote={promoteFind}
+          onDelete={deleteFind}
         />
       )}
 
@@ -1268,13 +1289,14 @@ function ResearchSidebar({ analytics, activity, sourceStatus }: { analytics: Ana
   )
 }
 
-function FindDetailModal({ find, close, downloadBibTeX, requestAccess, isAdmin, onPromote }: {
+function FindDetailModal({ find, close, downloadBibTeX, requestAccess, isAdmin, onPromote, onDelete }: {
   find: SharedFind
   close: () => void
   downloadBibTeX: (find: SharedFind) => void
   requestAccess: (find: SharedFind) => void
   isAdmin: boolean
   onPromote: (find: SharedFind, status: 'community' | 'verified' | 'research_grade') => Promise<void>
+  onDelete: (find: SharedFind) => Promise<void>
 }) {
   const coords = displayCoords(find)
 
@@ -1360,7 +1382,13 @@ function FindDetailModal({ find, close, downloadBibTeX, requestAccess, isAdmin, 
             {find.verification_status === 'research_grade' && (
               <div className="inline-flex items-center gap-2 rounded-lg border border-blue-400/20 bg-blue-400/10 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-blue-200">
                 <CheckCircle2 className="h-3.5 w-3.5" />
-                Exact coordinates - research grade record
+                Research grade record
+              </div>
+            )}
+            {find.coordinates_released === true && coords.isPrecise && (
+              <div className="inline-flex items-center gap-2 rounded-lg border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-emerald-200">
+                <MapPin className="h-3.5 w-3.5" />
+                Exact coordinates released
               </div>
             )}
           </div>
@@ -1435,6 +1463,19 @@ function FindDetailModal({ find, close, downloadBibTeX, requestAccess, isAdmin, 
                     </button>
                   )
                 })}
+              </div>
+              <div className="mt-3 border-t border-amber-500/15 pt-3">
+                <button
+                  type="button"
+                  onClick={() => onDelete(find)}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-red-400/25 bg-red-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-wide text-red-200 transition-colors hover:bg-red-500/20"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Delete find
+                </button>
+                <p className="mt-2 text-[10px] font-medium leading-relaxed text-white/40">
+                  Hides this record from the public map and database. The row is soft-deleted for audit history.
+                </p>
               </div>
             </div>
           )}
@@ -1641,6 +1682,7 @@ function mapRawFind(row: RawSharedFind): SharedFind | null {
     public_longitude: numberValue(row.public_longitude),
     location_precision: precisionValue(row.location_precision),
     precision_locked: booleanValue(row.precision_locked),
+    coordinates_released: booleanValue(row.coordinates_released),
     dateCollected: normalise(row.date_collected) || normalise(row.observed_at) || '',
     photos: Array.isArray(row.photos) ? row.photos.filter((item): item is string => typeof item === 'string') : [],
     measurements,

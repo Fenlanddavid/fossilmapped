@@ -46,11 +46,8 @@ export function displayCoords(find: SharedFind): DisplayCoords {
   const publicLat = numberOrNull(find.public_latitude);
   const publicLon = numberOrNull(find.public_longitude);
   const precision = find.location_precision ?? "exact";
-  const isVerifiedPlus =
-    find.verification_status === "verified" ||
-    find.verification_status === "research_grade";
 
-  if (isVerifiedPlus && exactLat != null && exactLon != null) {
+  if (find.coordinates_released === true && exactLat != null && exactLon != null) {
     return {
       lat: exactLat,
       lon: exactLon,

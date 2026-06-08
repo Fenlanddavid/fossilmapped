@@ -25,6 +25,7 @@ CREATE TABLE public.shared_finds (
     public_longitude  double precision,
     location_precision text NOT NULL DEFAULT 'exact',
     precision_locked  boolean NOT NULL DEFAULT true,
+    coordinates_released boolean NOT NULL DEFAULT false,
     date_collected    timestamp with time zone NOT NULL,
     photos            text[] DEFAULT '{}',     -- Array of Cloud Storage URLs
     measurements      jsonb DEFAULT '{}'::jsonb,

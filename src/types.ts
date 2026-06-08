@@ -13,6 +13,7 @@ export interface SharedFind {
   public_longitude?: number | null;
   location_precision?: 'exact' | '100m' | '1km' | 'locality';
   precision_locked?: boolean;
+  coordinates_released?: boolean;
   dateCollected: string;
   photos: string[]; // Base64 or Cloud URLs
   measurements?: {

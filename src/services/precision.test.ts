@@ -48,4 +48,42 @@ describe('displayCoords', () => {
     })
     expect(locationPrecisionLabel('locality')).toBe('Locality area')
   })
+
+  it('does not expose exact coordinates just because a record is verified', () => {
+    const coords = displayCoords({
+      ...baseFind,
+      public_latitude: 50.73,
+      public_longitude: -2.93,
+      location_precision: '1km',
+      precision_locked: true,
+      verification_status: 'research_grade',
+      coordinates_released: false,
+    })
+
+    expect(coords).toEqual({
+      lat: 50.73,
+      lon: -2.93,
+      label: '~1km area',
+      isPrecise: false,
+    })
+  })
+
+  it('shows exact stored coordinates only when coordinates are released', () => {
+    const coords = displayCoords({
+      ...baseFind,
+      public_latitude: 50.73,
+      public_longitude: -2.93,
+      location_precision: '1km',
+      precision_locked: true,
+      verification_status: 'research_grade',
+      coordinates_released: true,
+    })
+
+    expect(coords).toEqual({
+      lat: 50.725234,
+      lon: -2.934567,
+      label: '50.725234, -2.934567',
+      isPrecise: true,
+    })
+  })
 })
