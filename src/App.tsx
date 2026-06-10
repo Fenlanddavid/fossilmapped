@@ -237,12 +237,9 @@ function App() {
     const label = status === 'research_grade' ? 'Research Grade' : status.charAt(0).toUpperCase() + status.slice(1)
     const confirmed = window.confirm(`Promote ${find.id} to ${label}? This will be visible on FossilMapped.`)
     if (!confirmed) return
-    const coordinatesReleased = status === 'verified' || status === 'research_grade'
-      ? window.confirm(`Release exact stored coordinates for ${find.id}? Choose Cancel to keep the collector's public location privacy setting.`)
-      : false
     try {
-      await promoteVerification(find.id, status, { coordinatesReleased })
-      const updated: SharedFind = { ...find, verification_status: status, coordinates_released: coordinatesReleased }
+      await promoteVerification(find.id, status, { coordinatesReleased: false })
+      const updated: SharedFind = { ...find, verification_status: status, coordinates_released: false }
       setFinds(prev => prev.map(f => f.id === find.id ? updated : f))
       setSelectedFind(updated)
     } catch (e: any) {
