@@ -1392,6 +1392,8 @@ function FindDetailModal({ find, close, downloadBibTeX, requestAccess, isAdmin, 
 }) {
   const coords = displayCoords(find)
   const osGridRef = formatOsGridRef(coords.lat, coords.lon, 8)
+  const [selectedPhoto, setSelectedPhoto] = useState<string | null>(find.photos?.[0] ?? null)
+  const [lightboxOpen, setLightboxOpen] = useState(false)
 
   function copyPermalink() {
     const url = `${window.location.origin}${window.location.pathname}?find=${encodeURIComponent(find.id)}`
@@ -1399,13 +1401,27 @@ function FindDetailModal({ find, close, downloadBibTeX, requestAccess, isAdmin, 
   }
 
   return (
+    <>
+    {lightboxOpen && selectedPhoto && (
+      <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/95" onClick={() => setLightboxOpen(false)}>
+        <button className="absolute right-4 top-4 grid h-10 w-10 place-items-center rounded-lg border border-white/10 bg-white/10 text-white transition-colors hover:bg-white/20" aria-label="Close lightbox">
+          <X className="h-5 w-5" />
+        </button>
+        <img src={selectedPhoto} alt={find.taxon} className="max-h-[95vh] max-w-[95vw] object-contain" onClick={(e) => e.stopPropagation()} />
+      </div>
+    )}
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-8">
       <button className="absolute inset-0 bg-black/88 backdrop-blur-sm" onClick={close} aria-label="Close detail" />
       <div className="relative flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-white/10 bg-surface shadow-2xl md:flex-row">
         <div className="flex h-72 w-full flex-col bg-black md:h-auto md:w-[46%]">
           <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-[#050505]">
-            {find.photos && find.photos.length > 0 ? (
-              <img src={find.photos[0]} alt={find.taxon} className="h-full w-full object-contain" />
+            {selectedPhoto ? (
+              <button className="group h-full w-full" onClick={() => setLightboxOpen(true)} aria-label="View full size">
+                <img src={selectedPhoto} alt={find.taxon} className="h-full w-full object-contain transition-opacity group-hover:opacity-85" />
+                <div className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100">
+                  <div className="rounded-lg border border-white/20 bg-black/60 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-white backdrop-blur">View full size</div>
+                </div>
+              </button>
             ) : (
               <div className="text-center text-white/16">
                 <Image className="mx-auto h-10 w-10" />
@@ -1419,9 +1435,14 @@ function FindDetailModal({ find, close, downloadBibTeX, requestAccess, isAdmin, 
           </div>
           <div className="flex h-20 gap-2 border-t border-white/10 bg-[#0d1117] p-3">
             {find.photos && find.photos.length > 0 ? find.photos.map((photo, index) => (
-              <div key={photo} className="h-full w-16 overflow-hidden rounded-lg border border-white/10 bg-black/40">
+              <button
+                key={photo}
+                onClick={() => setSelectedPhoto(photo)}
+                className={`h-full w-16 shrink-0 overflow-hidden rounded-lg border transition-colors ${selectedPhoto === photo ? "border-accent" : "border-white/10 hover:border-white/30"} bg-black/40`}
+                aria-label={`Photo ${index + 1}`}
+              >
                 <img src={photo} alt={`${find.taxon} ${index + 1}`} className="h-full w-full object-cover" />
-              </div>
+              </button>
             )) : [1, 2, 3, 4].map((slot) => (
               <div key={slot} className="grid h-full w-16 place-items-center rounded-lg border border-white/10 bg-white/5 p-1 text-center text-[8px] font-bold uppercase text-white/20">Slot {slot}</div>
             ))}
@@ -1465,7 +1486,7 @@ function FindDetailModal({ find, close, downloadBibTeX, requestAccess, isAdmin, 
               secondary={(
                 <>
                   <span>{coords.label}</span>
-                  {osGridRef && <span className="mt-1 block">OS grid ref {osGridRef}</span>}
+                  {osGridRef && coords.isPrecise && <span className="mt-1 block">OS grid ref {osGridRef}</span>}
                 </>
               )}
             />
@@ -1585,6 +1606,7 @@ function FindDetailModal({ find, close, downloadBibTeX, requestAccess, isAdmin, 
         </div>
       </div>
     </div>
+    </>
   )
 }
 
