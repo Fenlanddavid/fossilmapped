@@ -40,6 +40,7 @@ import { exportToCSV, exportToJSON } from './services/export'
 import { displayCoords } from './services/precision'
 import { toBibTeX } from './services/citation'
 import { buildMapFindCollections, emptyMapFindCollection } from './services/mapData'
+import { formatOsGridRef } from './services/osGrid'
 
 const ADMIN_PIN = (import.meta.env.VITE_ADMIN_PIN as string | undefined)?.trim()
 const FINDS_PINS_SOURCE = 'finds-pins'
@@ -127,6 +128,7 @@ function App() {
   const [withPhotosOnly, setWithPhotosOnly] = useState(false)
   const [highQualityOnly, setHighQualityOnly] = useState(false)
   const [mapHudDismissed, setMapHudDismissed] = useState(false)
+  const [showRecentFinds, setShowRecentFinds] = useState(false)
   const [verificationFilter, setVerificationFilter] = useState<'All' | 'community' | 'verified' | 'research_grade'>('All')
   const [notice, setNotice] = useState<string | null>(null)
   const [autoOpenId, setAutoOpenId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('find'))
@@ -666,6 +668,12 @@ function App() {
                   dismissed={mapHudDismissed}
                   dismiss={() => setMapHudDismissed(true)}
                 />
+                <RecentFindsPanel
+                  finds={filteredFinds}
+                  setSelectedFind={setSelectedFind}
+                  open={showRecentFinds}
+                  setOpen={setShowRecentFinds}
+                />
               </>
             )}
 
@@ -917,6 +925,90 @@ function MiniLabel({ label, value }: { label: string; value: React.ReactNode }) 
       <div className="text-[8px] font-black uppercase tracking-wider text-white/35">{label}</div>
       <div className="mt-1 truncate font-bold text-white/80">{value}</div>
     </div>
+  )
+}
+
+function RecentFindsPanel({ finds, setSelectedFind, open, setOpen }: {
+  finds: SharedFind[]
+  setSelectedFind: (find: SharedFind) => void
+  open: boolean
+  setOpen: (value: boolean) => void
+}) {
+  const recent = useMemo(
+    () => [...finds].sort((a, b) => new Date(b.sharedAt).getTime() - new Date(a.sharedAt).getTime()).slice(0, 10),
+    [finds]
+  )
+
+  return (
+    <section className="pointer-events-none absolute bottom-3 left-3 right-3 z-10 sm:bottom-4 sm:left-4 sm:right-auto sm:w-[28rem] xl:w-[30rem]">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="pointer-events-auto mb-2 inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-accent/35 bg-[#05070b] px-3 text-[10px] font-black uppercase tracking-wider text-accent shadow-2xl transition-colors hover:border-accent hover:bg-accent hover:text-black"
+        aria-expanded={open}
+      >
+        <List className="h-3.5 w-3.5" />
+        Latest finds
+        <span className="rounded bg-white/10 px-1.5 py-0.5 text-[9px]">{recent.length}</span>
+      </button>
+
+      {open && (
+        <div className="pointer-events-auto overflow-hidden rounded-lg border border-white/12 bg-[#05070b] shadow-2xl">
+          <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
+            <div>
+              <p className="text-[9px] font-black uppercase tracking-[0.18em] text-accent">Latest finds</p>
+              <h2 className="text-sm font-black text-white">Recent shared records</h2>
+            </div>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="grid h-8 w-8 place-items-center rounded-lg border border-white/10 bg-white/5 text-white/55 transition-colors hover:bg-white/10 hover:text-white"
+              aria-label="Hide latest finds"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="max-h-72 overflow-y-auto p-2 custom-scrollbar">
+            {recent.length === 0 ? (
+              <div className="rounded-lg border border-white/10 bg-white/5 p-4 text-sm font-bold text-white/45">
+                No visible records match the current filters.
+              </div>
+            ) : (
+              <div className="grid gap-2">
+                {recent.map((find) => (
+                  <button
+                    key={find.id}
+                    type="button"
+                    onClick={() => setSelectedFind(find)}
+                    className="group grid min-w-0 grid-cols-[3.5rem_1fr] gap-3 rounded-lg border border-white/10 bg-white/[0.04] p-2 text-left transition-colors hover:border-accent/45 hover:bg-accent/8"
+                  >
+                    <div className="aspect-square overflow-hidden rounded-md bg-white/5">
+                      {find.photos?.[0] ? (
+                        <img src={find.photos[0]} alt={find.taxon} className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="grid h-full place-items-center text-white/20">
+                          <Image className="h-5 w-5" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="min-w-0 self-center">
+                      <div className="flex min-w-0 items-start justify-between gap-2">
+                        <p className="min-w-0 truncate text-sm font-black italic text-white group-hover:text-accent">{find.taxon}</p>
+                        <span className="shrink-0 text-[9px] font-bold text-white/45">{relativeDate(find.sharedAt)}</span>
+                      </div>
+                      <p className="mt-0.5 truncate text-[11px] font-medium text-white/60">{find.locationName}</p>
+                      <p className="mt-1 truncate text-[10px] font-bold uppercase tracking-wide text-white/40">
+                        {[find.formation, find.member].filter(Boolean).join(' / ') || 'No formation recorded'}
+                      </p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -1299,6 +1391,7 @@ function FindDetailModal({ find, close, downloadBibTeX, requestAccess, isAdmin, 
   onDelete: (find: SharedFind) => Promise<void>
 }) {
   const coords = displayCoords(find)
+  const osGridRef = formatOsGridRef(coords.lat, coords.lon, 8)
 
   function copyPermalink() {
     const url = `${window.location.origin}${window.location.pathname}?find=${encodeURIComponent(find.id)}`
@@ -1365,7 +1458,17 @@ function FindDetailModal({ find, close, downloadBibTeX, requestAccess, isAdmin, 
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <InfoTile icon={Layers} label="Stratigraphy" primary={find.period || 'Unknown'} secondary={[find.stage, find.formation, find.member, find.bed].filter(Boolean).join(' / ')} />
-            <InfoTile icon={MapPin} label="Provenance" primary={find.locationName} secondary={coords.label} />
+            <InfoTile
+              icon={MapPin}
+              label="Provenance"
+              primary={find.locationName}
+              secondary={(
+                <>
+                  <span>{coords.label}</span>
+                  {osGridRef && <span className="mt-1 block">OS grid ref {osGridRef}</span>}
+                </>
+              )}
+            />
             <InfoTile icon={User} label="Collector" primary={find.collectorName} secondary={find.collectorEmail ? 'Contact available' : 'No public contact'} />
             <InfoTile icon={Calendar} label="Date found" primary={formatDate(find.dateCollected)} secondary={`Shared ${formatDate(find.sharedAt)}`} />
             <InfoTile icon={Eye} label="Quality score" primary={`${getQuality(find)}%`} secondary="Completeness estimate" accent />
@@ -1934,6 +2037,21 @@ function formatDate(value: string) {
   const date = new Date(value)
   if (!Number.isFinite(date.getTime())) return 'Unknown'
   return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
+function relativeDate(value: string) {
+  const time = new Date(value).getTime()
+  if (!Number.isFinite(time)) return 'Unknown'
+  const diffMs = Date.now() - time
+  const minute = 60 * 1000
+  const hour = 60 * minute
+  const day = 24 * hour
+  if (diffMs < minute) return 'Just now'
+  if (diffMs < hour) return `${Math.max(1, Math.round(diffMs / minute))}m ago`
+  if (diffMs < day) return `${Math.max(1, Math.round(diffMs / hour))}h ago`
+  const days = Math.max(1, Math.round(diffMs / day))
+  if (days < 30) return `${days}d ago`
+  return formatDate(value)
 }
 
 export default App
