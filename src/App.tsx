@@ -376,11 +376,12 @@ function App() {
         },
       })
 
-      // Individual pins
+      // Individual pins — precise finds only; approximate finds show as halo only
       map.current?.addLayer({
         id: 'finds-layer',
         type: 'circle',
         source: FINDS_PINS_SOURCE,
+        filter: ['==', ['get', 'is_precise'], true],
         paint: {
           'circle-color': ['match', ['get', 'verification_status'], 'research_grade', '#10b981', 'verified', '#38bdf8', '#f59e0b'],
           'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 8, 10, 12, 15, 18],
@@ -461,7 +462,7 @@ function App() {
         [event.point.x - 32, event.point.y - 32],
         [event.point.x + 32, event.point.y + 32],
       ]
-      const features = mapInstance.queryRenderedFeatures(bbox, { layers: ['finds-layer'] })
+      const features = mapInstance.queryRenderedFeatures(bbox, { layers: ['finds-layer', 'finds-approx-area'] })
       const findId = features[0]?.properties?.id
       const found = filteredFinds.find((find) => find.id === findId)
       if (found) setSelectedFind(found)
