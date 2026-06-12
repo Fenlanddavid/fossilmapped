@@ -16,6 +16,7 @@ export interface SharedFind {
   coordinates_released?: boolean;
   dateCollected: string;
   photos: string[]; // Base64 or Cloud URLs
+  photosLoaded?: boolean;
   measurements?: {
     length?: number;
     width?: number;

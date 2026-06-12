@@ -7,6 +7,41 @@ const hasSupabaseConfig =
   !supabaseUrl.includes('YOUR_PROJECT_ID') &&
   supabaseAnonKey !== 'YOUR_ANON_KEY'
 const SHARED_FINDS_FETCH_TIMEOUT_MS = 30000
+const SHARED_FINDS_METADATA_SELECT = [
+  'id',
+  'fossilmap_id',
+  'hrid',
+  'collector_name',
+  'collector_email',
+  'taxon',
+  'element',
+  'period',
+  'stage',
+  'formation',
+  'member',
+  'bed',
+  'location_name',
+  'latitude',
+  'longitude',
+  'public_latitude',
+  'public_longitude',
+  'location_precision',
+  'precision_locked',
+  'coordinates_released',
+  'date_collected',
+  'measurements',
+  'weight_g',
+  'length_mm',
+  'width_mm',
+  'thickness_mm',
+  'notes',
+  'repository',
+  'accession_id',
+  'quality_score',
+  'shared_at',
+  'verification_status',
+  'is_deleted',
+].join(',')
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
@@ -41,7 +76,7 @@ async function invokeAdminAction(action: string, payload: Record<string, unknown
   }
 }
 
-export async function getSharedFinds() {
+export async function getSharedFinds(): Promise<Record<string, unknown>[]> {
   if (!hasSupabaseConfig) {
     throw new Error('Supabase is not configured. Showing the built-in demo dataset.')
   }
@@ -52,13 +87,13 @@ export async function getSharedFinds() {
   try {
     const { data, error } = await supabase
       .from('shared_finds')
-      .select('*')
+      .select(SHARED_FINDS_METADATA_SELECT)
       .not('is_deleted', 'eq', true)
       .order('shared_at', { ascending: false })
       .abortSignal(controller.signal)
     
     if (error) throw error
-    return data ?? []
+    return (data ?? []) as unknown as Record<string, unknown>[]
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
       throw new Error('The shared registry did not respond in time. Showing the demo dataset.')
@@ -67,6 +102,36 @@ export async function getSharedFinds() {
   } finally {
     window.clearTimeout(timeout)
   }
+}
+
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+export async function getSharedFindPhotos(recordId: string) {
+  const cleanId = recordId.trim()
+  if (!cleanId) return []
+
+  const filters: Array<['hrid' | 'fossilmap_id' | 'id', string]> = [
+    ['hrid', cleanId],
+    ['fossilmap_id', cleanId],
+  ]
+  if (uuidPattern.test(cleanId)) filters.push(['id', cleanId])
+
+  for (const [column, value] of filters) {
+    const { data, error } = await supabase
+      .from('shared_finds')
+      .select('photos')
+      .eq(column, value)
+      .maybeSingle()
+
+    if (error) throw error
+    if (data) {
+      return Array.isArray(data.photos)
+        ? data.photos.filter((item): item is string => typeof item === 'string')
+        : []
+    }
+  }
+
+  return []
 }
 
 export async function promoteVerification(

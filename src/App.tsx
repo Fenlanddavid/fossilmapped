@@ -35,7 +35,7 @@ import {
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { SharedFind } from './types'
-import { canModerateSharedFinds, deleteSharedFind, getSharedFinds, promoteVerification } from './services/supabase'
+import { canModerateSharedFinds, deleteSharedFind, getSharedFindPhotos, getSharedFinds, promoteVerification } from './services/supabase'
 import { exportToCSV, exportToJSON } from './services/export'
 import { displayCoords } from './services/precision'
 import { toBibTeX } from './services/citation'
@@ -79,6 +79,7 @@ const MOCK_FINDS: SharedFind[] = [
     coordinates_released: false,
     dateCollected: '2026-02-15',
     photos: [],
+    photosLoaded: true,
     sharedAt: '2026-02-16',
     isPublic: true,
     repository: 'Private collection',
@@ -105,6 +106,7 @@ const MOCK_FINDS: SharedFind[] = [
     coordinates_released: false,
     dateCollected: '2026-02-20',
     photos: [],
+    photosLoaded: true,
     sharedAt: '2026-02-21',
     isPublic: true,
     repository: 'Private',
@@ -157,6 +159,39 @@ function App() {
   }, [selectedFind])
 
   useEffect(() => {
+    if (!selectedFind || selectedFind.photosLoaded) return
+
+    let cancelled = false
+    const selectedId = selectedFind.id
+
+    async function loadSelectedPhotos() {
+      try {
+        const photos = await getSharedFindPhotos(selectedId)
+        if (cancelled) return
+
+        setFinds(prev => prev.map(find => (
+          find.id === selectedId ? { ...find, photos, photosLoaded: true } : find
+        )))
+        setSelectedFind(prev => (
+          prev?.id === selectedId ? { ...prev, photos, photosLoaded: true } : prev
+        ))
+      } catch (error) {
+        console.error('Failed to load find photos:', error)
+        if (cancelled) return
+        setSelectedFind(prev => (
+          prev?.id === selectedId ? { ...prev, photosLoaded: true } : prev
+        ))
+      }
+    }
+
+    loadSelectedPhotos()
+
+    return () => {
+      cancelled = true
+    }
+  }, [selectedFind?.id, selectedFind?.photosLoaded])
+
+  useEffect(() => {
     async function loadData() {
       setLoading(true)
       setSourceStatus('loading')
@@ -188,7 +223,7 @@ function App() {
     return finds.filter((find) => {
       if (selectedPeriod !== 'All' && normalise(find.period) !== selectedPeriod) return false
       if (contactableOnly && !find.collectorEmail) return false
-      if (withPhotosOnly && (!find.photos || find.photos.length === 0)) return false
+      if (withPhotosOnly && find.photosLoaded && (!find.photos || find.photos.length === 0)) return false
       if (highQualityOnly && getQuality(find) < 70) return false
       if (verificationFilter !== 'All' && (find.verification_status || 'community') !== verificationFilter) return false
       if (!q) return true
@@ -1423,6 +1458,10 @@ function FindDetailModal({ find, close, downloadBibTeX, requestAccess, isAdmin, 
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(find.photos?.[0] ?? null)
   const [lightboxOpen, setLightboxOpen] = useState(false)
 
+  useEffect(() => {
+    setSelectedPhoto(find.photos?.[0] ?? null)
+  }, [find.id, find.photos])
+
   function copyPermalink() {
     const url = `${window.location.origin}${window.location.pathname}?find=${encodeURIComponent(find.id)}`
     navigator.clipboard.writeText(url).catch(() => {})
@@ -1453,7 +1492,7 @@ function FindDetailModal({ find, close, downloadBibTeX, requestAccess, isAdmin, 
             ) : (
               <div className="text-center text-white/16">
                 <Image className="mx-auto h-10 w-10" />
-                <p className="mt-3 text-xs font-black uppercase tracking-widest">Scientific documentation required</p>
+                <p className="mt-3 text-xs font-black uppercase tracking-widest">{find.photosLoaded ? 'Scientific documentation required' : 'Loading photographs'}</p>
               </div>
             )}
             <div className="absolute left-4 top-4 flex items-center gap-2 rounded-lg border border-white/10 bg-black/65 px-3 py-1.5 backdrop-blur">
@@ -1844,6 +1883,7 @@ function mapRawFind(row: RawSharedFind): SharedFind | null {
     coordinates_released: booleanValue(row.coordinates_released),
     dateCollected: normalise(row.date_collected) || normalise(row.observed_at) || '',
     photos: Array.isArray(row.photos) ? row.photos.filter((item): item is string => typeof item === 'string') : [],
+    photosLoaded: Array.isArray(row.photos),
     measurements,
     repository: normalise(row.repository) || 'Private',
     accession_id: normalise(row.accession_id) || undefined,
