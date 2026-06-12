@@ -14,13 +14,25 @@ export function canModerateSharedFinds() {
   return Boolean(adminFunctionName)
 }
 
-async function invokeAdminAction(action: string, payload: Record<string, unknown>) {
+type AdminActionCredentials = {
+  adminPin?: string
+}
+
+async function invokeAdminAction(action: string, payload: Record<string, unknown>, credentials: AdminActionCredentials = {}) {
   if (!adminFunctionName) {
     throw new Error('Admin writes require a trusted Supabase Edge Function. Set VITE_SHARED_FINDS_ADMIN_FUNCTION before enabling moderation.')
   }
 
+  const adminPin = credentials.adminPin?.trim()
+  if (!adminPin) {
+    throw new Error('Admin PIN is required for moderation writes.')
+  }
+
   const { data, error } = await supabase.functions.invoke(adminFunctionName, {
     body: { action, ...payload },
+    headers: {
+      'x-admin-pin': adminPin,
+    },
   })
 
   if (error) throw error
@@ -60,7 +72,7 @@ export async function getSharedFinds() {
 export async function promoteVerification(
   hrid: string,
   status: 'community' | 'verified' | 'research_grade',
-  options: { coordinatesReleased?: boolean } = {},
+  options: { coordinatesReleased?: boolean; adminPin?: string } = {},
 ) {
   const cleanHrid = hrid.trim()
   if (!cleanHrid) {
@@ -70,16 +82,16 @@ export async function promoteVerification(
   const update: { verification_status: typeof status; coordinates_released?: boolean } = { verification_status: status }
   if (typeof options.coordinatesReleased === 'boolean') update.coordinates_released = options.coordinatesReleased
 
-  await invokeAdminAction('promoteVerification', { hrid: cleanHrid, update })
+  await invokeAdminAction('promoteVerification', { hrid: cleanHrid, update }, { adminPin: options.adminPin })
 }
 
-export async function deleteSharedFind(hrid: string) {
+export async function deleteSharedFind(hrid: string, options: { adminPin?: string } = {}) {
   const cleanHrid = hrid.trim()
   if (!cleanHrid) {
     throw new Error('Delete failed: missing record HRID.')
   }
 
-  await invokeAdminAction('deleteSharedFind', { hrid: cleanHrid })
+  await invokeAdminAction('deleteSharedFind', { hrid: cleanHrid }, { adminPin: options.adminPin })
 }
 
 export async function shareToCommunity(payload: any) {

@@ -23,6 +23,7 @@ describe('trusted moderation writes', () => {
   })
 
   it('rejects moderation writes when no trusted function is configured', async () => {
+    vi.stubEnv('VITE_SHARED_FINDS_ADMIN_FUNCTION', '')
     const { canModerateSharedFinds, promoteVerification } = await import('./supabase')
 
     expect(canModerateSharedFinds()).toBe(false)
@@ -38,7 +39,7 @@ describe('trusted moderation writes', () => {
     const { canModerateSharedFinds, promoteVerification } = await import('./supabase')
 
     expect(canModerateSharedFinds()).toBe(true)
-    await expect(promoteVerification(' FM-2026-001 ', 'research_grade', { coordinatesReleased: true })).resolves.toBeUndefined()
+    await expect(promoteVerification(' FM-2026-001 ', 'research_grade', { coordinatesReleased: true, adminPin: '1234' })).resolves.toBeUndefined()
     expect(supabaseMocks.from).not.toHaveBeenCalled()
     expect(supabaseMocks.invoke).toHaveBeenCalledWith('shared-finds-admin', {
       body: {
@@ -49,6 +50,9 @@ describe('trusted moderation writes', () => {
           coordinates_released: true,
         },
       },
+      headers: {
+        'x-admin-pin': '1234',
+      },
     })
   })
 
@@ -58,13 +62,24 @@ describe('trusted moderation writes', () => {
 
     const { deleteSharedFind } = await import('./supabase')
 
-    await expect(deleteSharedFind(' FM-2026-001 ')).resolves.toBeUndefined()
+    await expect(deleteSharedFind(' FM-2026-001 ', { adminPin: '1234' })).resolves.toBeUndefined()
     expect(supabaseMocks.invoke).toHaveBeenCalledWith('shared-finds-admin', {
       body: {
         action: 'deleteSharedFind',
         hrid: 'FM-2026-001',
       },
+      headers: {
+        'x-admin-pin': '1234',
+      },
     })
+  })
+
+  it('rejects configured moderation writes when no admin PIN is supplied', async () => {
+    vi.stubEnv('VITE_SHARED_FINDS_ADMIN_FUNCTION', 'shared-finds-admin')
+    const { promoteVerification } = await import('./supabase')
+
+    await expect(promoteVerification('FM-2026-001', 'verified')).rejects.toThrow(/Admin PIN/)
+    expect(supabaseMocks.invoke).not.toHaveBeenCalled()
   })
 
   it('rejects missing HRIDs before invoking the function', async () => {

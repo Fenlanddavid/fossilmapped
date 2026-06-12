@@ -1,0 +1,2 @@
+[functions.shared-finds-admin]
+verify_jwt = false

@@ -134,6 +134,7 @@ function App() {
   const [autoOpenId, setAutoOpenId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('find'))
   const [showAbout, setShowAbout] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
+  const [adminPin, setAdminPin] = useState('')
   const [showAdminLogin, setShowAdminLogin] = useState(false)
   const [adminPinInput, setAdminPinInput] = useState('')
   const [adminPinError, setAdminPinError] = useState(false)
@@ -248,7 +249,7 @@ function App() {
     const confirmed = window.confirm(`Promote ${find.id} to ${label}? This will be visible on FossilMapped.`)
     if (!confirmed) return
     try {
-      await promoteVerification(find.id, status, { coordinatesReleased: false })
+      await promoteVerification(find.id, status, { coordinatesReleased: false, adminPin })
       const updated: SharedFind = { ...find, verification_status: status, coordinates_released: false }
       setFinds(prev => prev.map(f => f.id === find.id ? updated : f))
       setSelectedFind(updated)
@@ -269,7 +270,7 @@ function App() {
     const confirmed = window.confirm(`Delete ${find.id} from FossilMapped? This hides the record from the public map and database.`)
     if (!confirmed) return
     try {
-      await deleteSharedFind(find.id)
+      await deleteSharedFind(find.id, { adminPin })
       setFinds(prev => prev.filter(f => f.id !== find.id))
       setSelectedFind(null)
       setNotice(`Deleted ${find.id} from FossilMapped.`)
@@ -280,15 +281,18 @@ function App() {
 
   function handleAdminLogin(e: React.FormEvent) {
     e.preventDefault()
-    if (ADMIN_PIN && adminPinInput.trim() === ADMIN_PIN) {
-      setIsAdmin(true)
-      setShowAdminLogin(false)
-      setAdminPinInput('')
-      setAdminPinError(false)
-    } else {
+    const cleanPin = adminPinInput.trim()
+    if (!/^\d{4}$/.test(cleanPin) || (ADMIN_PIN && cleanPin !== ADMIN_PIN)) {
       setAdminPinError(true)
       setAdminPinInput('')
+      return
     }
+
+    setAdminPin(cleanPin)
+    setIsAdmin(true)
+    setShowAdminLogin(false)
+    setAdminPinInput('')
+    setAdminPinError(false)
   }
 
   function downloadBibTeX(find: SharedFind) {
@@ -583,9 +587,16 @@ function App() {
               <Filter className="h-4 w-4" />
               {activeFilterCount > 0 && <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[9px] font-black text-black">{activeFilterCount}</span>}
             </button>
-            {ADMIN_PIN && (
+            {(ADMIN_PIN || canModerateSharedFinds()) && (
               <button
-                onClick={() => isAdmin ? setIsAdmin(false) : setShowAdminLogin(true)}
+                onClick={() => {
+                  if (isAdmin) {
+                    setIsAdmin(false)
+                    setAdminPin('')
+                  } else {
+                    setShowAdminLogin(true)
+                  }
+                }}
                 className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg border transition-colors ${
                   isAdmin
                     ? 'border-amber-500/40 bg-amber-500/15 text-amber-400'
@@ -740,9 +751,12 @@ function App() {
               <Lock className="h-4 w-4 text-amber-400" />
               <span className="text-sm font-black uppercase tracking-widest text-amber-400">Admin login</span>
             </div>
-            <p className="mb-4 text-[11px] leading-relaxed text-white/45">This unlocks local review controls. Registry permissions still depend on Supabase policies.</p>
+            <p className="mb-4 text-[11px] leading-relaxed text-white/45">This unlocks review controls. The server verifies this PIN before registry writes.</p>
             <input
               type="password"
+              inputMode="numeric"
+              pattern="[0-9]{4}"
+              maxLength={4}
               placeholder="Enter PIN"
               autoFocus
               value={adminPinInput}
