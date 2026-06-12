@@ -2,11 +2,32 @@ import { createClient } from '@supabase/supabase-js'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://YOUR_PROJECT_ID.supabase.co'
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'YOUR_ANON_KEY'
+const adminFunctionName = (import.meta.env.VITE_SHARED_FINDS_ADMIN_FUNCTION as string | undefined)?.trim()
 const hasSupabaseConfig =
   !supabaseUrl.includes('YOUR_PROJECT_ID') &&
   supabaseAnonKey !== 'YOUR_ANON_KEY'
+const SHARED_FINDS_FETCH_TIMEOUT_MS = 30000
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+
+export function canModerateSharedFinds() {
+  return Boolean(adminFunctionName)
+}
+
+async function invokeAdminAction(action: string, payload: Record<string, unknown>) {
+  if (!adminFunctionName) {
+    throw new Error('Admin writes require a trusted Supabase Edge Function. Set VITE_SHARED_FINDS_ADMIN_FUNCTION before enabling moderation.')
+  }
+
+  const { data, error } = await supabase.functions.invoke(adminFunctionName, {
+    body: { action, ...payload },
+  })
+
+  if (error) throw error
+  if (data && typeof data === 'object' && 'error' in data) {
+    throw new Error(String((data as { error: unknown }).error))
+  }
+}
 
 export async function getSharedFinds() {
   if (!hasSupabaseConfig) {
@@ -14,7 +35,7 @@ export async function getSharedFinds() {
   }
 
   const controller = new AbortController()
-  const timeout = window.setTimeout(() => controller.abort(), 10000)
+  const timeout = window.setTimeout(() => controller.abort(), SHARED_FINDS_FETCH_TIMEOUT_MS)
 
   try {
     const { data, error } = await supabase
@@ -49,19 +70,7 @@ export async function promoteVerification(
   const update: { verification_status: typeof status; coordinates_released?: boolean } = { verification_status: status }
   if (typeof options.coordinatesReleased === 'boolean') update.coordinates_released = options.coordinatesReleased
 
-  const { data, error } = await supabase
-    .from('shared_finds')
-    .update(update)
-    .eq('hrid', cleanHrid)
-    .select('hrid')
-
-  if (error) throw error
-  if (!data || data.length === 0) {
-    throw new Error(`Promotion did not apply. No writable row matched HRID "${cleanHrid}" or direct client updates are blocked by RLS.`)
-  }
-  if (data.length > 1) {
-    throw new Error(`Promotion matched ${data.length} rows for HRID "${cleanHrid}". Expected exactly one.`)
-  }
+  await invokeAdminAction('promoteVerification', { hrid: cleanHrid, update })
 }
 
 export async function deleteSharedFind(hrid: string) {
@@ -70,19 +79,7 @@ export async function deleteSharedFind(hrid: string) {
     throw new Error('Delete failed: missing record HRID.')
   }
 
-  const { data, error } = await supabase
-    .from('shared_finds')
-    .update({ is_deleted: true, deleted_at: new Date().toISOString() })
-    .eq('hrid', cleanHrid)
-    .select('hrid')
-
-  if (error) throw error
-  if (!data || data.length === 0) {
-    throw new Error(`Delete did not apply. No writable row matched HRID "${cleanHrid}" or direct client updates are blocked by RLS.`)
-  }
-  if (data.length > 1) {
-    throw new Error(`Delete matched ${data.length} rows for HRID "${cleanHrid}". Expected exactly one.`)
-  }
+  await invokeAdminAction('deleteSharedFind', { hrid: cleanHrid })
 }
 
 export async function shareToCommunity(payload: any) {

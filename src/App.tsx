@@ -35,7 +35,7 @@ import {
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { SharedFind } from './types'
-import { deleteSharedFind, getSharedFinds, promoteVerification } from './services/supabase'
+import { canModerateSharedFinds, deleteSharedFind, getSharedFinds, promoteVerification } from './services/supabase'
 import { exportToCSV, exportToJSON } from './services/export'
 import { displayCoords } from './services/precision'
 import { toBibTeX } from './services/citation'
@@ -138,8 +138,14 @@ function App() {
   const [adminPinInput, setAdminPinInput] = useState('')
   const [adminPinError, setAdminPinError] = useState(false)
   const [mapSourceVersion, setMapSourceVersion] = useState(0)
+  const [showBlockingLoad, setShowBlockingLoad] = useState(true)
   const mapContainer = useRef<HTMLDivElement>(null)
   const map = useRef<maplibregl.Map | null>(null)
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setShowBlockingLoad(false), 1500)
+    return () => window.clearTimeout(timer)
+  }, [])
 
   useEffect(() => {
     if (selectedFind) {
@@ -234,6 +240,10 @@ function App() {
       setNotice('Admin mode is locked.')
       return
     }
+    if (!canModerateSharedFinds()) {
+      setNotice('Moderation writes need a configured trusted server function.')
+      return
+    }
     const label = status === 'research_grade' ? 'Research Grade' : status.charAt(0).toUpperCase() + status.slice(1)
     const confirmed = window.confirm(`Promote ${find.id} to ${label}? This will be visible on FossilMapped.`)
     if (!confirmed) return
@@ -250,6 +260,10 @@ function App() {
   async function deleteFind(find: SharedFind) {
     if (!isAdmin) {
       setNotice('Admin mode is locked.')
+      return
+    }
+    if (!canModerateSharedFinds()) {
+      setNotice('Delete needs a configured trusted server function.')
       return
     }
     const confirmed = window.confirm(`Delete ${find.id} from FossilMapped? This hides the record from the public map and database.`)
@@ -476,7 +490,7 @@ function App() {
 
   return (
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-[#05070b] text-white font-sans">
-      {loading && <LoadingOverlay />}
+      {loading && showBlockingLoad && <LoadingOverlay />}
 
       {notice && (
         <div className="fixed right-4 top-4 z-[120] flex items-center gap-2 rounded-lg border border-emerald-400/25 bg-emerald-500/15 px-4 py-3 text-xs font-bold text-emerald-100 shadow-2xl backdrop-blur">
@@ -712,6 +726,7 @@ function App() {
           isAdmin={isAdmin}
           onPromote={promoteFind}
           onDelete={deleteFind}
+          moderationAvailable={canModerateSharedFinds()}
         />
       )}
 
@@ -1379,7 +1394,7 @@ function ResearchSidebar({ analytics, activity, sourceStatus }: { analytics: Ana
   )
 }
 
-function FindDetailModal({ find, close, downloadBibTeX, requestAccess, isAdmin, onPromote, onDelete }: {
+function FindDetailModal({ find, close, downloadBibTeX, requestAccess, isAdmin, onPromote, onDelete, moderationAvailable }: {
   find: SharedFind
   close: () => void
   downloadBibTeX: (find: SharedFind) => void
@@ -1387,6 +1402,7 @@ function FindDetailModal({ find, close, downloadBibTeX, requestAccess, isAdmin, 
   isAdmin: boolean
   onPromote: (find: SharedFind, status: 'community' | 'verified' | 'research_grade') => Promise<void>
   onDelete: (find: SharedFind) => Promise<void>
+  moderationAvailable: boolean
 }) {
   const coords = displayCoords(find)
   const osGridRef = formatOsGridRef(coords.lat, coords.lon, 8)
@@ -1567,6 +1583,11 @@ function FindDetailModal({ find, close, downloadBibTeX, requestAccess, isAdmin, 
                 <ShieldCheck className="h-3 w-3 text-amber-400/70" />
                 <span className="text-[9px] font-black uppercase tracking-widest text-amber-400/70">Admin — Verification</span>
               </div>
+              {!moderationAvailable && (
+                <p className="mb-3 rounded-lg border border-amber-400/20 bg-amber-500/10 p-3 text-[10px] font-medium leading-relaxed text-amber-100/80">
+                  Moderation writes are disabled until a trusted Supabase Edge Function is configured.
+                </p>
+              )}
               <div className="grid grid-cols-3 gap-2">
                 {(['community', 'verified', 'research_grade'] as const).map((status) => {
                   const current = find.verification_status === status || (!find.verification_status && status === 'community')
@@ -1574,7 +1595,7 @@ function FindDetailModal({ find, close, downloadBibTeX, requestAccess, isAdmin, 
                     <button
                       key={status}
                       onClick={() => onPromote(find, status)}
-                      disabled={current}
+                      disabled={current || !moderationAvailable}
                       className={`rounded-lg border px-2 py-2 text-[10px] font-black uppercase tracking-wide transition-colors disabled:cursor-default ${
                         current
                           ? 'border-amber-400/40 bg-amber-500/20 text-amber-300'
@@ -1590,6 +1611,7 @@ function FindDetailModal({ find, close, downloadBibTeX, requestAccess, isAdmin, 
                 <button
                   type="button"
                   onClick={() => onDelete(find)}
+                  disabled={!moderationAvailable}
                   className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-red-400/25 bg-red-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-wide text-red-200 transition-colors hover:bg-red-500/20"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
@@ -1685,7 +1707,7 @@ function QualityBadge({ value }: { value: number }) {
     : tier === 'community'
     ? 'border-amber-400/25 bg-amber-400/10 text-amber-200'
     : 'border-white/10 bg-white/5 text-white/45'
-  const label = tier === 'research_grade' ? 'Research Grade' : tier === 'community' ? 'Community' : 'Basic'
+  const label = tier === 'research_grade' ? 'High Quality' : tier === 'community' ? 'Community Quality' : 'Basic'
   return (
     <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[9px] font-black uppercase ${tone}`}>
       <span>{value}%</span>

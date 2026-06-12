@@ -2,96 +2,77 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const supabaseMocks = vi.hoisted(() => ({
   from: vi.fn(),
+  invoke: vi.fn(),
 }))
 
 vi.mock('@supabase/supabase-js', () => ({
   createClient: vi.fn(() => ({
     from: supabaseMocks.from,
+    functions: {
+      invoke: supabaseMocks.invoke,
+    },
   })),
 }))
 
-function mockUpdateResult(result: { data: unknown[] | null; error: unknown }) {
-  const select = vi.fn().mockResolvedValue(result)
-  const eq = vi.fn(() => ({ select }))
-  const update = vi.fn(() => ({ eq }))
-  supabaseMocks.from.mockReturnValue({ update })
-  return { update, eq, select }
-}
-
-describe('promoteVerification', () => {
+describe('trusted moderation writes', () => {
   beforeEach(() => {
     vi.resetModules()
+    vi.unstubAllEnvs()
     supabaseMocks.from.mockReset()
+    supabaseMocks.invoke.mockReset()
   })
 
-  it('throws when no row was updated', async () => {
-    const chain = mockUpdateResult({ data: [], error: null })
-    const { promoteVerification } = await import('./supabase')
+  it('rejects moderation writes when no trusted function is configured', async () => {
+    const { canModerateSharedFinds, promoteVerification } = await import('./supabase')
 
-    await expect(promoteVerification(' FM-2026-001 ', 'verified')).rejects.toThrow(/Promotion did not apply/)
-    expect(supabaseMocks.from).toHaveBeenCalledWith('shared_finds')
-    expect(chain.update).toHaveBeenCalledWith({ verification_status: 'verified' })
-    expect(chain.eq).toHaveBeenCalledWith('hrid', 'FM-2026-001')
-    expect(chain.select).toHaveBeenCalledWith('hrid')
+    expect(canModerateSharedFinds()).toBe(false)
+    await expect(promoteVerification('FM-2026-001', 'verified')).rejects.toThrow(/trusted Supabase Edge Function/)
+    expect(supabaseMocks.from).not.toHaveBeenCalled()
+    expect(supabaseMocks.invoke).not.toHaveBeenCalled()
   })
 
-  it('resolves when exactly one row was updated', async () => {
-    mockUpdateResult({ data: [{ hrid: 'FM-2026-001' }], error: null })
-    const { promoteVerification } = await import('./supabase')
+  it('routes promotions through the configured trusted function', async () => {
+    vi.stubEnv('VITE_SHARED_FINDS_ADMIN_FUNCTION', 'shared-finds-admin')
+    supabaseMocks.invoke.mockResolvedValue({ data: { ok: true }, error: null })
 
-    await expect(promoteVerification('FM-2026-001', 'research_grade')).resolves.toBeUndefined()
-  })
+    const { canModerateSharedFinds, promoteVerification } = await import('./supabase')
 
-  it('can update coordinate release separately from verification status', async () => {
-    const chain = mockUpdateResult({ data: [{ hrid: 'FM-2026-001' }], error: null })
-    const { promoteVerification } = await import('./supabase')
-
-    await expect(promoteVerification('FM-2026-001', 'research_grade', { coordinatesReleased: true })).resolves.toBeUndefined()
-    expect(chain.update).toHaveBeenCalledWith({
-      verification_status: 'research_grade',
-      coordinates_released: true,
+    expect(canModerateSharedFinds()).toBe(true)
+    await expect(promoteVerification(' FM-2026-001 ', 'research_grade', { coordinatesReleased: true })).resolves.toBeUndefined()
+    expect(supabaseMocks.from).not.toHaveBeenCalled()
+    expect(supabaseMocks.invoke).toHaveBeenCalledWith('shared-finds-admin', {
+      body: {
+        action: 'promoteVerification',
+        hrid: 'FM-2026-001',
+        update: {
+          verification_status: 'research_grade',
+          coordinates_released: true,
+        },
+      },
     })
   })
 
-  it('rejects missing HRIDs before calling Supabase', async () => {
-    mockUpdateResult({ data: [{ hrid: 'FM-2026-001' }], error: null })
-    const { promoteVerification } = await import('./supabase')
+  it('routes deletes through the configured trusted function', async () => {
+    vi.stubEnv('VITE_SHARED_FINDS_ADMIN_FUNCTION', 'shared-finds-admin')
+    supabaseMocks.invoke.mockResolvedValue({ data: { ok: true }, error: null })
 
-    await expect(promoteVerification('   ', 'verified')).rejects.toThrow(/missing record HRID/)
-    expect(supabaseMocks.from).not.toHaveBeenCalled()
-  })
-})
-
-describe('deleteSharedFind', () => {
-  beforeEach(() => {
-    vi.resetModules()
-    supabaseMocks.from.mockReset()
-  })
-
-  it('soft deletes exactly one matching row', async () => {
-    const chain = mockUpdateResult({ data: [{ hrid: 'FM-2026-001' }], error: null })
     const { deleteSharedFind } = await import('./supabase')
 
     await expect(deleteSharedFind(' FM-2026-001 ')).resolves.toBeUndefined()
-    expect(supabaseMocks.from).toHaveBeenCalledWith('shared_finds')
-    expect(chain.update).toHaveBeenCalledWith(expect.objectContaining({ is_deleted: true }))
-    expect(chain.update.mock.calls[0][0].deleted_at).toEqual(expect.any(String))
-    expect(chain.eq).toHaveBeenCalledWith('hrid', 'FM-2026-001')
-    expect(chain.select).toHaveBeenCalledWith('hrid')
+    expect(supabaseMocks.invoke).toHaveBeenCalledWith('shared-finds-admin', {
+      body: {
+        action: 'deleteSharedFind',
+        hrid: 'FM-2026-001',
+      },
+    })
   })
 
-  it('throws when no row was deleted', async () => {
-    mockUpdateResult({ data: [], error: null })
-    const { deleteSharedFind } = await import('./supabase')
+  it('rejects missing HRIDs before invoking the function', async () => {
+    vi.stubEnv('VITE_SHARED_FINDS_ADMIN_FUNCTION', 'shared-finds-admin')
+    const { deleteSharedFind, promoteVerification } = await import('./supabase')
 
-    await expect(deleteSharedFind('FM-2026-001')).rejects.toThrow(/Delete did not apply/)
-  })
-
-  it('rejects missing HRIDs before calling Supabase', async () => {
-    mockUpdateResult({ data: [{ hrid: 'FM-2026-001' }], error: null })
-    const { deleteSharedFind } = await import('./supabase')
-
+    await expect(promoteVerification('   ', 'verified')).rejects.toThrow(/missing record HRID/)
     await expect(deleteSharedFind('   ')).rejects.toThrow(/missing record HRID/)
-    expect(supabaseMocks.from).not.toHaveBeenCalled()
+    expect(supabaseMocks.invoke).not.toHaveBeenCalled()
   })
 })

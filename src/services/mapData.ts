@@ -61,6 +61,6 @@ export function buildMapFindCollections(finds: SharedFind[]): {
 
   return {
     pins: { type: 'FeatureCollection', features },
-    clusters: { type: 'FeatureCollection', features },
+    clusters: { type: 'FeatureCollection', features: features.filter((feature) => feature.properties.is_precise) },
   };
 }
