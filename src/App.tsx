@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   Archive,
@@ -142,6 +142,7 @@ function App() {
   const [adminPinError, setAdminPinError] = useState(false)
   const [mapSourceVersion, setMapSourceVersion] = useState(0)
   const [showBlockingLoad, setShowBlockingLoad] = useState(true)
+  const loadingPhotoIds = useRef<Set<string>>(new Set())
   const mapContainer = useRef<HTMLDivElement>(null)
   const map = useRef<maplibregl.Map | null>(null)
 
@@ -190,6 +191,35 @@ function App() {
       cancelled = true
     }
   }, [selectedFind?.id, selectedFind?.photosLoaded])
+
+  const loadPhotosForFinds = useCallback((records: SharedFind[]) => {
+    const pending = records.filter((find) => !find.photosLoaded && !loadingPhotoIds.current.has(find.id))
+    if (pending.length === 0) return
+
+    pending.forEach((find) => loadingPhotoIds.current.add(find.id))
+
+    pending.forEach(async (find) => {
+      try {
+        const photos = await getSharedFindPhotos(find.id)
+        setFinds(prev => prev.map((item) => (
+          item.id === find.id ? { ...item, photos, photosLoaded: true } : item
+        )))
+        setSelectedFind(prev => (
+          prev?.id === find.id ? { ...prev, photos, photosLoaded: true } : prev
+        ))
+      } catch (error) {
+        console.error(`Failed to load photos for ${find.id}:`, error)
+        setFinds(prev => prev.map((item) => (
+          item.id === find.id ? { ...item, photosLoaded: true } : item
+        )))
+        setSelectedFind(prev => (
+          prev?.id === find.id ? { ...prev, photosLoaded: true } : prev
+        ))
+      } finally {
+        loadingPhotoIds.current.delete(find.id)
+      }
+    })
+  }, [])
 
   useEffect(() => {
     async function loadData() {
@@ -243,6 +273,21 @@ function App() {
       ].some((value) => normalise(value).toLowerCase().includes(q))
     })
   }, [contactableOnly, finds, highQualityOnly, searchQuery, selectedPeriod, verificationFilter, withPhotosOnly])
+
+  const recentFinds = useMemo(
+    () => [...filteredFinds].sort((a, b) => new Date(b.sharedAt).getTime() - new Date(a.sharedAt).getTime()).slice(0, 10),
+    [filteredFinds]
+  )
+
+  useEffect(() => {
+    if (activeTab !== 'gallery') return
+    loadPhotosForFinds(filteredFinds)
+  }, [activeTab, filteredFinds, loadPhotosForFinds])
+
+  useEffect(() => {
+    if (!showRecentFinds) return
+    loadPhotosForFinds(recentFinds)
+  }, [showRecentFinds, recentFinds, loadPhotosForFinds])
 
   const periods = useMemo(() => {
     const values = Array.from(new Set(finds.map((find) => normalise(find.period)).filter(Boolean)))
